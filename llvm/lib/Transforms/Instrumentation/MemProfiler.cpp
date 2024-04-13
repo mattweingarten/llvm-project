@@ -49,6 +49,7 @@ using namespace llvm;
 using namespace llvm::memprof;
 
 #define DEBUG_TYPE "memprof"
+#define STRUCT_PREFIX "struct."
 
 namespace llvm {
 extern cl::opt<bool> PGOWarnMissing;
@@ -661,10 +662,50 @@ stackFrameIncludesInlinedCallStack(ArrayRef<Frame> ProfileCallStack,
   return InlCallStackIter == InlinedCallStack.end();
 }
 
+static std::optional<StructLayout *>
+resolveStructLayout(LLVMContext &Ctx, const DataLayout &DL, Function *F) {
+
+  LLVM_DEBUG(dbgs() << "Attempting to resolve type:\n");
+  if (!F) {
+    LLVM_DEBUG("Function\n");
+    return std::nullopt;
+  }
+  LLVM_DEBUG(dbgs() << "Getting function Name:\n");
+  auto *SbP = F->getSubprogram();
+  if (!SbP) {
+    LLVM_DEBUG(dbgs() << "No Subprogram\n");
+    return std::nullopt;
+  }
+  LLVM_DEBUG(dbgs() << "Got Subprogram\n");
+  LLVM_DEBUG(SbP->dump());
+
+  // LLVMContext stores struct types with "struct." prefix.
+  // this is a hacky way to get around this
+  // What do we do when we have arrays/classes?
+  StringRef CalleeName = F->getSubprogram()->getName();
+  LLVM_DEBUG(dbgs() << "Got Key: " << (STRUCT_PREFIX + CalleeName.str())
+                    << "\n");
+  auto FullName = Twine(STRUCT_PREFIX) + Twine(CalleeName.str());
+
+  StructType *STy = StructType::getTypeByName(Ctx, FullName.str());
+  if (!STy) {
+    LLVM_DEBUG(dbgs() << "No type for this name\n");
+    return std::nullopt;
+  }
+  LLVM_DEBUG(dbgs() << "Found Type for this name:\n");
+  LLVM_DEBUG(STy->dump());
+
+  const StructLayout *SL = DL.getStructLayout(STy);
+  LLVM_DEBUG(dbgs() << "Structure size is:" << SL->getSizeInBytes() << "\n");
+
+  return std::nullopt;
+  // return std::make_optional<StructType*>(STy);
+}
+
 static void readMemprof(Module &M, Function &F,
                         IndexedInstrProfReader *MemProfReader,
-                        const TargetLibraryInfo &TLI) {
-  auto &Ctx = M.getContext();
+                        const TargetLibraryInfo &TLI, LLVMContext &Ctx,
+                        const DataLayout &DL) {
   // Previously we used getIRPGOFuncName() here. If F is local linkage,
   // getIRPGOFuncName() returns FuncName with prefix 'FileName;'. But
   // llvm-profdata uses FuncName in dwarf to create GUID which doesn't
@@ -760,7 +801,11 @@ static void readMemprof(Module &M, Function &F,
       auto *CI = dyn_cast<CallBase>(&I);
       if (!CI)
         continue;
+
       auto *CalledFunction = CI->getCalledFunction();
+      std::optional<StructLayout *> STyOpt =
+          resolveStructLayout(Ctx, DL, CalledFunction);
+
       if (CalledFunction && CalledFunction->isIntrinsic())
         continue;
       // List of call stack ids computed from the location hashes on debug
@@ -876,6 +921,8 @@ MemProfUsePass::MemProfUsePass(std::string MemoryProfileFile,
 
 PreservedAnalyses MemProfUsePass::run(Module &M, ModuleAnalysisManager &AM) {
   LLVM_DEBUG(dbgs() << "Read in memory profile:");
+  const DataLayout &DL =
+      M.getDataLayout(); // we can get DL here for future StructLayout
   auto &Ctx = M.getContext();
   auto ReaderOrErr = IndexedInstrProfReader::create(MemoryProfileFileName, *FS);
   if (Error E = ReaderOrErr.takeError()) {
@@ -901,13 +948,12 @@ PreservedAnalyses MemProfUsePass::run(Module &M, ModuleAnalysisManager &AM) {
   }
 
   auto &FAM = AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
-
+  // Here we can get AliasAnalysis forrom FAM for future.
   for (auto &F : M) {
     if (F.isDeclaration())
       continue;
-
     const TargetLibraryInfo &TLI = FAM.getResult<TargetLibraryAnalysis>(F);
-    readMemprof(M, F, MemProfReader.get(), TLI);
+    readMemprof(M, F, MemProfReader.get(), TLI, Ctx, DL);
   }
 
   return PreservedAnalyses::none();
