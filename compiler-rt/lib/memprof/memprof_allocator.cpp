@@ -69,7 +69,7 @@ void Print(const MemInfoBlock &M, const u64 id, bool print_terse) {
            M.NumMigratedCpu, M.NumLifetimeOverlaps, M.NumSameAllocCpu,
            M.NumSameDeallocCpu);
     Printf("AcccessCountHistogram[%u]: ", M.AccessHistogramSize);
-    uint32_t PrintSize = M.AccessHistogramSize > 16U ? 16U : M.AccessHistogramSize; 
+    uint32_t PrintSize = M.AccessHistogramSize > 32U ? 32U : M.AccessHistogramSize; 
     for(size_t i = 0; i < PrintSize; ++i){
       Printf("%llu ", ((uint64_t*)M.AccessHistogram)[i]);
     }
