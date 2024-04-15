@@ -119,7 +119,8 @@ MemInfoBlock() {
 }
 
 MemInfoBlock(uint32_t Size, uint64_t AccessCount, uint32_t AllocTs,
-             uint32_t DeallocTs, uint32_t AllocCpu, uint32_t DeallocCpu)
+             uint32_t DeallocTs, uint32_t AllocCpu, uint32_t DeallocCpu,
+             uintptr_t Histogram, uint32_t HistogramSize)
     : MemInfoBlock() {
   AllocCount = 1U;
   TotalAccessCount = AccessCount;
@@ -149,6 +150,9 @@ MemInfoBlock(uint32_t Size, uint64_t AccessCount, uint32_t AllocTs,
   AllocCpuId = AllocCpu;
   DeallocCpuId = DeallocCpu;
   NumMigratedCpu = AllocCpuId != DeallocCpuId;
+  //For now we assume HistogramSize is the same as user requested size
+  AccessHistogramSize = HistogramSize;
+  AccessHistogram = Histogram;
 }
 
 void Merge(const MemInfoBlock &newMIB) {
@@ -194,6 +198,10 @@ void Merge(const MemInfoBlock &newMIB) {
   NumSameDeallocCpu += DeallocCpuId == newMIB.DeallocCpuId;
   AllocCpuId = newMIB.AllocCpuId;
   DeallocCpuId = newMIB.DeallocCpuId;
+  // For now we assume Histogram is same size
+  for(size_t i = 0; i < AccessHistogramSize;++i){
+      ((uint64_t*)AccessHistogram)[i] += ((uint64_t*)newMIB.AccessHistogram)[i]; 
+  }
 }
 
 #ifdef _MSC_VER

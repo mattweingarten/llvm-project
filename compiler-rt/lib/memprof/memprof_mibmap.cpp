@@ -31,6 +31,8 @@ void InsertOrMerge(const uptr Id, const MemInfoBlock &Block, MIBMapTy &Map) {
     LockedMemInfoBlock *lmib = *h;
     SpinMutexLock lock(&lmib->mutex);
     lmib->mib.Merge(Block);
+    //Assuming the merged block passed as a parameter is destroyed
+    InternalFree((void*)Block.AccessHistogram);
   }
 }
 

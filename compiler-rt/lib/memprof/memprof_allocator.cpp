@@ -68,6 +68,12 @@ void Print(const MemInfoBlock &M, const u64 id, bool print_terse) {
            "cpu: %u, num same dealloc_cpu: %u\n",
            M.NumMigratedCpu, M.NumLifetimeOverlaps, M.NumSameAllocCpu,
            M.NumSameDeallocCpu);
+    Printf("AcccessCountHistogram[%u]: ", M.AccessHistogramSize);
+    uint32_t PrintSize = M.AccessHistogramSize > 16U ? 16U : M.AccessHistogramSize; 
+    for(size_t i = 0; i < PrintSize; ++i){
+      Printf("%llu ", ((uint64_t*)M.AccessHistogram)[i]);
+    }
+    Printf("\n");
   }
 }
 } // namespace
@@ -208,16 +214,19 @@ AllocatorCache *GetAllocatorCache(MemprofThreadLocalMallocStorage *ms) {
 
 // Accumulates the access count from the shadow for the given pointer and size.
 u64 GetShadowCount(uptr p, u32 size) {
-  u64 *shadow = (u64 *)MEM_TO_SHADOW(p);
-  u64 *shadow_end = (u64 *)MEM_TO_SHADOW(p + size);
+  u8 *shadow = (u8 *)MEM_TO_SHADOW_COUNTER(p);
+  u8 *shadow_end = (u8 *)MEM_TO_SHADOW_COUNTER(p + size);
   u64 count = 0;
-  for (; shadow <= shadow_end; shadow++)
+  for (; shadow < shadow_end; shadow++)
     count += *shadow;
   return count;
 }
 
 // Clears the shadow counters (when memory is allocated).
 void ClearShadow(uptr addr, uptr size) {
+
+  u8 *shadow_8 = (u8 *)MEM_TO_SHADOW_COUNTER(addr);
+  u8 *shadow_end_8 = (u8 *)MEM_TO_SHADOW_COUNTER(addr + size);
   CHECK(AddrIsAlignedByGranularity(addr));
   CHECK(AddrIsInMem(addr));
   CHECK(AddrIsAlignedByGranularity(addr + size));
@@ -226,7 +235,12 @@ void ClearShadow(uptr addr, uptr size) {
   uptr shadow_beg = MEM_TO_SHADOW(addr);
   uptr shadow_end = MEM_TO_SHADOW(addr + size - SHADOW_GRANULARITY) + 1;
   if (shadow_end - shadow_beg < common_flags()->clear_shadow_mmap_threshold) {
-    REAL(memset)((void *)shadow_beg, 0, shadow_end - shadow_beg);
+    // Previous implementation (in comments next line) caused error where not all 
+    // counters were cleared correctly. We apply simple version here for now.
+    // REAL(memset)((void *)shadow_beg, 0, shadow_end - shadow_beg);
+    for (; shadow_8 < shadow_end_8; shadow_8++){
+      *shadow_8 = 0;
+    }
   } else {
     uptr page_size = GetPageSizeCached();
     uptr page_beg = RoundUpTo(shadow_beg, page_size);
@@ -279,6 +293,20 @@ struct Allocator {
     Print(Value->mib, Key, bool(Arg));
   }
 
+  static MemInfoBlock CreateNewMIBWithHistogram(uptr p, MemprofChunk* m, u64 user_size){
+    u64 c = GetShadowCount(p, user_size);
+    long curtime = GetTimestamp();
+    uint32_t HistogramSize = user_size / 8;
+    uintptr_t  Histogram = (uintptr_t) InternalAlloc(user_size * sizeof(uint64_t));
+    memset((void*) Histogram,0,user_size * sizeof(uint64_t));
+    for(size_t i = 0; i < HistogramSize;++i){
+      u8 CounterPtr =  *((u8*) MEM_TO_SHADOW_COUNTER(p + 8 * i));
+      ((uint64_t*) Histogram)[i] = ((uint64_t) CounterPtr);
+    }
+    MemInfoBlock  newMIB(user_size, c, m->timestamp_ms,curtime,m->cpu_id,GetCpuId(), Histogram, HistogramSize);
+    return newMIB;
+  }
+
   void FinishAndWrite() {
     if (print_text && common_flags()->print_module_map)
       DumpProcessMap();
@@ -319,10 +347,7 @@ struct Allocator {
           if (!m)
             return;
           uptr user_beg = ((uptr)m) + kChunkHeaderSize;
-          u64 c = GetShadowCount(user_beg, user_requested_size);
-          long curtime = GetTimestamp();
-          MemInfoBlock newMIB(user_requested_size, c, m->timestamp_ms, curtime,
-                              m->cpu_id, GetCpuId());
+          MemInfoBlock newMIB = CreateNewMIBWithHistogram(user_beg, m, user_requested_size);
           InsertOrMerge(m->alloc_context_id, newMIB, A->MIBMap);
         },
         this);
@@ -451,11 +476,8 @@ struct Allocator {
         atomic_exchange(&m->user_requested_size, 0, memory_order_acquire);
     if (memprof_inited && atomic_load_relaxed(&constructed) &&
         !atomic_load_relaxed(&destructing)) {
-      u64 c = GetShadowCount(p, user_requested_size);
-      long curtime = GetTimestamp();
-
-      MemInfoBlock newMIB(user_requested_size, c, m->timestamp_ms, curtime,
-                          m->cpu_id, GetCpuId());
+      MemInfoBlock newMIB = CreateNewMIBWithHistogram(p, m, user_requested_size);
+      // Printf("Pointer: 0x%llx -> 0x%lx\n",p,user_requested_size);
       InsertOrMerge(m->alloc_context_id, newMIB, MIBMap);
     }
 

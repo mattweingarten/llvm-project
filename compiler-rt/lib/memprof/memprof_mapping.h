@@ -37,6 +37,13 @@ extern uptr kHighMemEnd; // Initialized in __memprof_init.
 #define MEM_TO_SHADOW(mem)                                                     \
   ((((mem) & SHADOW_MASK) >> SHADOW_SCALE) + (SHADOW_OFFSET))
 
+// Maps each 8 byte section in memory to a 1 byte counter in 
+// in shadow memory:
+#define SHADOW_COUNTER_MASK ~(8ULL - 1)
+#define MEM_TO_SHADOW_COUNTER(mem)                                                     \
+  ((((mem) & SHADOW_COUNTER_MASK) >> SHADOW_SCALE) + (SHADOW_OFFSET))
+
+
 #define SHADOW_ENTRY_SIZE (MEM_GRANULARITY >> SHADOW_SCALE)
 
 #define kLowMemBeg 0
@@ -104,8 +111,10 @@ inline bool AddrIsAlignedByGranularity(uptr a) {
 inline void RecordAccess(uptr a) {
   // If we use a different shadow size then the type below needs adjustment.
   CHECK_EQ(SHADOW_ENTRY_SIZE, 8);
-  u64 *shadow_address = (u64 *)MEM_TO_SHADOW(a);
-  (*shadow_address)++;
+  u8 *shadow_address = (u8 *)MEM_TO_SHADOW_COUNTER(a);
+  if(*shadow_address < 255){
+    (*shadow_address)++;
+  }
 }
 
 } // namespace __memprof
