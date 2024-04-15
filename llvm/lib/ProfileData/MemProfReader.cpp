@@ -101,14 +101,22 @@ readMemInfoBlocks(const char *Ptr) {
 
   const uint64_t NumItemsToRead =
       endian::readNext<uint64_t, llvm::endianness::little, unaligned>(Ptr);
+
   llvm::SmallVector<std::pair<uint64_t, MemInfoBlock>> Items;
   for (uint64_t I = 0; I < NumItemsToRead; I++) {
     const uint64_t Id =
         endian::readNext<uint64_t, llvm::endianness::little, unaligned>(Ptr);
     const MemInfoBlock MIB = *reinterpret_cast<const MemInfoBlock *>(Ptr);
-    Items.push_back({Id, MIB});
     // Only increment by size of MIB since readNext implicitly increments.
     Ptr += sizeof(MemInfoBlock);
+    const uint64_t NumHistogreamEntriesToRead =
+        endian::readNext<uint64_t, llvm::endianness::little, unaligned>(Ptr);
+    uint64_t HistogramEntry;
+    for (uint64_t J = 0; J < NumHistogreamEntriesToRead; J++) {
+      HistogramEntry =
+          endian::readNext<uint64_t, llvm::endianness::little, unaligned>(Ptr);
+    }
+    Items.push_back({Id, MIB});
   }
   return Items;
 }
@@ -119,10 +127,10 @@ CallStackMap readStackInfo(const char *Ptr) {
   const uint64_t NumItemsToRead =
       endian::readNext<uint64_t, llvm::endianness::little, unaligned>(Ptr);
   CallStackMap Items;
-
   for (uint64_t I = 0; I < NumItemsToRead; I++) {
     const uint64_t StackId =
         endian::readNext<uint64_t, llvm::endianness::little, unaligned>(Ptr);
+
     const uint64_t NumPCs =
         endian::readNext<uint64_t, llvm::endianness::little, unaligned>(Ptr);
 
