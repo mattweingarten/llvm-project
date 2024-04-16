@@ -50,6 +50,7 @@ using namespace llvm::memprof;
 
 #define DEBUG_TYPE "memprof"
 #define STRUCT_PREFIX "struct."
+#define CLASS_PREFIX "class."
 
 namespace llvm {
 extern cl::opt<bool> PGOWarnMissing;
@@ -662,41 +663,49 @@ stackFrameIncludesInlinedCallStack(ArrayRef<Frame> ProfileCallStack,
   return InlCallStackIter == InlinedCallStack.end();
 }
 
-static std::optional<StructLayout *>
-resolveStructLayout(LLVMContext &Ctx, const DataLayout &DL, Function *F) {
 
-  LLVM_DEBUG(dbgs() << "Attempting to resolve type:\n");
-  if (!F) {
-    LLVM_DEBUG("Function\n");
+// This function returns the struct layout of an instruction that is 
+// an allocation call originating from "new" 
+// It makes the assumption that all allocations calls are followed by 
+// the cunstructor.
+static std::optional<const StructLayout*>
+resolveStructLayout(LLVMContext &Ctx, const DataLayout &DL, Instruction &I) {
+  
+  Instruction* NextInstr = I.getNextNonDebugInstruction(false);
+  if(!NextInstr)
     return std::nullopt;
-  }
-  LLVM_DEBUG(dbgs() << "Getting function Name:\n");
+  auto *CI = dyn_cast<CallBase>(NextInstr);
+
+  if(!CI)
+    return std::nullopt;
+
+  Function* F = CI->getCalledFunction();
+  if(!F)
+    return std::nullopt;
+
   auto *SbP = F->getSubprogram();
-  if (!SbP) {
-    LLVM_DEBUG(dbgs() << "No Subprogram\n");
+  if(!SbP)
     return std::nullopt;
-  }
-  LLVM_DEBUG(dbgs() << "Got Subprogram\n");
-  LLVM_DEBUG(SbP->dump());
 
   // LLVMContext stores struct types with "struct." prefix.
   // this is a hacky way to get around this
   // What do we do when we have arrays/classes?
   StringRef CalleeName = F->getSubprogram()->getName();
-  LLVM_DEBUG(dbgs() << "Got Key: " << (STRUCT_PREFIX + CalleeName.str())
-                    << "\n");
-  auto FullName = Twine(STRUCT_PREFIX) + Twine(CalleeName.str());
-
-  StructType *STy = StructType::getTypeByName(Ctx, FullName.str());
-  if (!STy) {
-    LLVM_DEBUG(dbgs() << "No type for this name\n");
-    return std::nullopt;
+  auto StructFullName = Twine(STRUCT_PREFIX) + Twine(CalleeName.str());
+  auto ClassFullName = Twine(CLASS_PREFIX) + Twine(CalleeName.str());
+  
+  StructType *STy = StructType::getTypeByName(Ctx, StructFullName.str());
+  if (!STy){
+    STy = StructType::getTypeByName(Ctx, ClassFullName.str());
+    if (!STy)
+      return std::nullopt;
   }
-  LLVM_DEBUG(dbgs() << "Found Type for this name:\n");
+  LLVM_DEBUG(dbgs() << "Found Type for this name: ");
   LLVM_DEBUG(STy->dump());
-
+  LLVM_DEBUG(dbgs() << "\n");
   const StructLayout *SL = DL.getStructLayout(STy);
-  LLVM_DEBUG(dbgs() << "Structure size is:" << SL->getSizeInBytes() << "\n");
+  return std::make_optional<const StructLayout*>(SL);
+}
 
   return std::nullopt;
   // return std::make_optional<StructType*>(STy);
