@@ -99,18 +99,18 @@ struct PortableMemInfoBlock {
 
   // Print out the contents of the MemInfoBlock in YAML format.
   void printYAML(raw_ostream &OS) const {
-  OS << "      MemInfoBlock:\n";
+    OS << "      MemInfoBlock:\n";
 #define MIBEntryDef(NameTag, Name, Type)                                       \
   OS << "        " << #Name << ": " << Name << "\n";
 #include "llvm/ProfileData/MIBEntryDef.inc"
 #undef MIBEntryDef
-  OS << "        " << "AccessHistogramValues" << ":";
-  // For now, print a max of 32 values to save space for legibility
-  uint32_t PrintSize = AccessHistogramSize > 32U ? 32U : AccessHistogramSize; 
-  for(uint32_t I = 0; I < PrintSize;++I){
-    OS << " -"  <<  ((uint64_t*)AccessHistogram)[I];
-  }
-  OS << "\n";
+    OS << "        " << "AccessHistogramValues" << ":";
+    // For now, print a max of 32 values to save space for legibility
+    uint32_t PrintSize = AccessHistogramSize > 32U ? 32U : AccessHistogramSize;
+    for (uint32_t I = 0; I < PrintSize; ++I) {
+      OS << " -" << ((uint64_t *)AccessHistogram)[I];
+    }
+    OS << "\n";
   }
 
   // Define getters for each type which can be called by analyses.

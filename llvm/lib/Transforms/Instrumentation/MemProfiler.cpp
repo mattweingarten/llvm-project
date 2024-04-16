@@ -663,28 +663,27 @@ stackFrameIncludesInlinedCallStack(ArrayRef<Frame> ProfileCallStack,
   return InlCallStackIter == InlinedCallStack.end();
 }
 
-
-// This function returns the struct layout of an instruction that is 
-// an allocation call originating from "new" 
-// It makes the assumption that all allocations calls are followed by 
+// This function returns the struct layout of an instruction that is
+// an allocation call originating from "new"
+// It makes the assumption that all allocations calls are followed by
 // the cunstructor.
-static std::optional<const StructLayout*>
+static std::optional<const StructLayout *>
 resolveStructLayout(LLVMContext &Ctx, const DataLayout &DL, Instruction &I) {
-  
-  Instruction* NextInstr = I.getNextNonDebugInstruction(false);
-  if(!NextInstr)
+
+  Instruction *NextInstr = I.getNextNonDebugInstruction(false);
+  if (!NextInstr)
     return std::nullopt;
   auto *CI = dyn_cast<CallBase>(NextInstr);
 
-  if(!CI)
+  if (!CI)
     return std::nullopt;
 
-  Function* F = CI->getCalledFunction();
-  if(!F)
+  Function *F = CI->getCalledFunction();
+  if (!F)
     return std::nullopt;
 
   auto *SbP = F->getSubprogram();
-  if(!SbP)
+  if (!SbP)
     return std::nullopt;
 
   // LLVMContext stores struct types with "struct." prefix.
@@ -693,9 +692,9 @@ resolveStructLayout(LLVMContext &Ctx, const DataLayout &DL, Instruction &I) {
   StringRef CalleeName = F->getSubprogram()->getName();
   auto StructFullName = Twine(STRUCT_PREFIX) + Twine(CalleeName.str());
   auto ClassFullName = Twine(CLASS_PREFIX) + Twine(CalleeName.str());
-  
+
   StructType *STy = StructType::getTypeByName(Ctx, StructFullName.str());
-  if (!STy){
+  if (!STy) {
     STy = StructType::getTypeByName(Ctx, ClassFullName.str());
     if (!STy)
       return std::nullopt;
