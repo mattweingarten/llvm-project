@@ -104,13 +104,13 @@ struct PortableMemInfoBlock {
   OS << "        " << #Name << ": " << Name << "\n";
 #include "llvm/ProfileData/MIBEntryDef.inc"
 #undef MIBEntryDef
-  OS << "        " << "AccessHistogram" << ": "  << "\n";
+  OS << "        " << "AccessHistogramValues" << ":";
   // For now, print a max of 32 values to save space for legibility
   uint32_t PrintSize = AccessHistogramSize > 32U ? 32U : AccessHistogramSize; 
   for(uint32_t I = 0; I < PrintSize;++I){
-    OS << "          -\n";
-    OS << "          "  <<  ((uint64_t*)AccessHistogram)[I] <<"\n";
+    OS << " -"  <<  ((uint64_t*)AccessHistogram)[I];
   }
+  OS << "\n";
   }
 
   // Define getters for each type which can be called by analyses.
