@@ -703,11 +703,7 @@ resolveStructLayout(LLVMContext &Ctx, const DataLayout &DL, Instruction &I) {
   LLVM_DEBUG(STy->dump());
   LLVM_DEBUG(dbgs() << "\n");
   const StructLayout *SL = DL.getStructLayout(STy);
-  return std::make_optional<const StructLayout*>(SL);
-}
-
-  return std::nullopt;
-  // return std::make_optional<StructType*>(STy);
+  return std::make_optional<const StructLayout *>(SL);
 }
 
 static void readMemprof(Module &M, Function &F,
@@ -811,8 +807,7 @@ static void readMemprof(Module &M, Function &F,
         continue;
 
       auto *CalledFunction = CI->getCalledFunction();
-      std::optional<StructLayout *> STyOpt =
-          resolveStructLayout(Ctx, DL, CalledFunction);
+      std::optional<const StructLayout *> STyOpt = resolveStructLayout(Ctx, DL, I);
 
       if (CalledFunction && CalledFunction->isIntrinsic())
         continue;
