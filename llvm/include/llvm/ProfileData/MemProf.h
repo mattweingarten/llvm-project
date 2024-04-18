@@ -278,15 +278,46 @@ struct Frame {
 
 // A type representing the index into the table of call stacks.
 using CallStackId = uint64_t;
+using HistogramPtr = uint64_t *;
+struct AccessCountHistogram {
+  uint64_t Size;
+  uint64_t *HistogramPtr;
+
+  AccessCountHistogram() = default;
+
+  AccessCountHistogram(uint64_t Size, uint64_t *HistogramPtr)
+      : Size(Size), HistogramPtr(HistogramPtr) {}
+
+  size_t serializedSize(IndexedVersion Version) const;
+
+  bool operator==(const AccessCountHistogram &Other) const {
+    if (Other.HistogramPtr == HistogramPtr)
+      return true;
+    else
+      return false;
+  }
+
+  bool operator!=(const AccessCountHistogram &Other) const {
+    return !operator==(Other);
+  };
+
+  void printYAML(llvm::raw_ostream &OS) const {
+    //   OS << "      -H:";
+    //   for (size_t i = 0; i < Size; ++i) {
+    //     OS << "- " << HistogramPtr[i];
+    //   }
+    //   OS << "\n";
+  }
+};
 
 // Holds allocation information in a space efficient format where frames are
 // represented using unique identifiers.
 struct IndexedAllocationInfo {
-  // The dynamic calling context for the allocation in bottom-up (leaf-to-root)
-  // order. Frame contents are stored out-of-line.
+  // The dynamic calling context for the allocation in bottom-up
+  // (leaf-to-root) order. Frame contents are stored out-of-line.
   // TODO: Remove once we fully transition to CSId.
   llvm::SmallVector<FrameId> CallStack;
-  // Conceptually the same as above.  We are going to keep both CallStack and
+  // Conceptually the same as above.  We are gong to keep both CallStack and
   // CallStackId while we are transitioning from CallStack to CallStackId.
   CallStackId CSId = 0;
   // The statistics obtained from the runtime for the allocation.
@@ -321,15 +352,19 @@ struct AllocationInfo {
   llvm::SmallVector<Frame> CallStack;
   // Same as IndexedAllocationInfo::Info;
   PortableMemInfoBlock Info;
+  // Holds Histogram
+  AccessCountHistogram Histogram;
 
   AllocationInfo() = default;
   AllocationInfo(
       const IndexedAllocationInfo &IndexedAI,
-      llvm::function_ref<const Frame(const FrameId)> IdToFrameCallback) {
+      llvm::function_ref<const Frame(const FrameId)> IdToFrameCallback,
+      AccessCountHistogram H) {
     for (const FrameId &Id : IndexedAI.CallStack) {
       CallStack.push_back(IdToFrameCallback(Id));
     }
     Info = IndexedAI.Info;
+    Histogram = H;
   }
 
   void printYAML(raw_ostream &OS) const {
@@ -341,6 +376,7 @@ struct AllocationInfo {
       F.printYAML(OS);
     }
     Info.printYAML(OS);
+    Histogram.printYAML(OS);
   }
 };
 
@@ -361,6 +397,8 @@ struct IndexedMemProfRecord {
   // CallSiteIds while we are transitioning from CallSites to CallSiteIds.
   llvm::SmallVector<CallStackId> CallSiteIds;
 
+  llvm::SmallVector<AccessCountHistogram> AccessCountHistograms;
+
   void clear() {
     AllocSites.clear();
     CallSites.clear();
@@ -371,6 +409,7 @@ struct IndexedMemProfRecord {
     // profiles are merged together using llvm-profdata.
     AllocSites.append(Other.AllocSites);
     CallSites.append(Other.CallSites);
+    AccessCountHistograms.append(Other.AccessCountHistograms);
   }
 
   size_t serializedSize(IndexedVersion Version) const;
@@ -418,9 +457,14 @@ struct MemProfRecord {
   MemProfRecord(
       const IndexedMemProfRecord &Record,
       llvm::function_ref<const Frame(const FrameId Id)> IdToFrameCallback) {
+
+    uint64_t I = 0;
     for (const IndexedAllocationInfo &IndexedAI : Record.AllocSites) {
-      AllocSites.emplace_back(IndexedAI, IdToFrameCallback);
+      AccessCountHistogram H = Record.AccessCountHistograms[I];
+      AllocSites.emplace_back(IndexedAI, IdToFrameCallback, H);
+      I++;
     }
+
     for (const ArrayRef<FrameId> Site : Record.CallSites) {
       llvm::SmallVector<Frame> Frames;
       for (const FrameId Id : Site) {

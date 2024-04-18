@@ -30,6 +30,21 @@ static size_t serializedSizeV2(const IndexedAllocationInfo &IAI) {
   return Size;
 }
 
+static size_t serializedSizeV0(const AccessCountHistogram &H) {
+  // Num Entries in Histogram + 1 entry for size
+  return (H.Size + 1) * sizeof(uint64_t);
+}
+
+size_t AccessCountHistogram::serializedSize(IndexedVersion Version) const {
+  switch (Version) {
+  case Version0:
+  case Version1:
+  case Version2:
+    return serializedSizeV0(*this);
+  }
+  llvm_unreachable("unsupported MemProf version");
+}
+
 size_t IndexedAllocationInfo::serializedSize(IndexedVersion Version) const {
   switch (Version) {
   case Version0:
@@ -53,6 +68,11 @@ static size_t serializedSizeV0(const IndexedMemProfRecord &Record) {
     Result += sizeof(uint64_t);
     Result += Frames.size() * sizeof(FrameId);
   }
+
+  Result += sizeof(uint64_t);
+  for (const auto &Histogram : Record.AccessCountHistograms)
+    Result += Histogram.serializedSize(Version0);
+
   return Result;
 }
 
@@ -99,6 +119,16 @@ static void serializeV0(const IndexedMemProfRecord &Record,
     LE.write<uint64_t>(Frames.size());
     for (const FrameId &Id : Frames)
       LE.write<FrameId>(Id);
+  }
+
+  // Histogram
+  LE.write<uint64_t>(Record.AccessCountHistograms.size());
+  for (const auto &Histogram : Record.AccessCountHistograms) {
+    LE.write<uint64_t>(Histogram.Size);
+    for (uint64_t I = 0; I < Histogram.Size; I++) {
+      LE.write<uint64_t>(Histogram.HistogramPtr[I]);
+    }
+    free(Histogram.HistogramPtr);
   }
 }
 
@@ -175,6 +205,21 @@ static IndexedMemProfRecord deserializeV0(const MemProfSchema &Schema,
     Record.CallSiteIds.push_back(hashCallStack(Frames));
   }
 
+  // Read AccessCountHistograms
+  const uint64_t NumHistograms =
+      endian::readNext<uint64_t, llvm::endianness::little, unaligned>(Ptr);
+  for (uint64_t L = 0; L < NumHistograms; L++) {
+    AccessCountHistogram Histogram;
+    Histogram.Size =
+        endian::readNext<uint64_t, llvm::endianness::little, unaligned>(Ptr);
+    Histogram.HistogramPtr =
+        (uint64_t *)malloc(Histogram.Size * sizeof(uint64_t));
+    for (uint64_t M = 0; M < Histogram.Size; M++) {
+      Histogram.HistogramPtr[M] =
+          endian::readNext<uint64_t, llvm::endianness::little, unaligned>(Ptr);
+    }
+    Record.AccessCountHistograms.push_back(Histogram);
+  }
   return Record;
 }
 

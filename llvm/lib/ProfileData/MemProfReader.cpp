@@ -106,20 +106,20 @@ readMemInfoBlocks(const char *Ptr) {
   for (uint64_t I = 0; I < NumItemsToRead; I++) {
     const uint64_t Id =
         endian::readNext<uint64_t, llvm::endianness::little, unaligned>(Ptr);
+    // We cheat a bit here and remove the const from cast to set the
+    // Histogram Pointer to newly allocated buffer.
     MemInfoBlock MIB = *reinterpret_cast<const MemInfoBlock *>(Ptr);
     // Only increment by size of MIB since readNext implicitly increments.
     Ptr += sizeof(MemInfoBlock);
     const uint64_t NumHistogreamEntriesToRead =
         endian::readNext<uint64_t, llvm::endianness::little, unaligned>(Ptr);
 
-    // We cheat a bit here and remove the const from cast to set the 
-    // Histogram Pointer to buffer so we don't need to allocate any more. 
-    // MIB.AccessHistogram = (uintptr_t) Ptr;
-    MIB.AccessHistogram = (uintptr_t) malloc(NumHistogreamEntriesToRead * sizeof(uint64_t));
+    MIB.AccessHistogram =
+        (uintptr_t)malloc(NumHistogreamEntriesToRead * sizeof(uint64_t));
 
     for (uint64_t J = 0; J < NumHistogreamEntriesToRead; J++) {
-      ((uint64_t*)MIB.AccessHistogram)[J] =
-      endian::readNext<uint64_t, llvm::endianness::little, unaligned>(Ptr);
+      ((uint64_t *)MIB.AccessHistogram)[J] =
+          endian::readNext<uint64_t, llvm::endianness::little, unaligned>(Ptr);
     }
     Items.push_back({Id, MIB});
   }
@@ -468,6 +468,9 @@ Error RawMemProfReader::mapRawProfileToRecords() {
       IndexedMemProfRecord &Record = Result.first->second;
       Record.AllocSites.emplace_back(Callstack, CSId, MIB);
 
+      // Attach Histogram data
+      Record.AccessCountHistograms.emplace_back(
+          MIB.AccessHistogramSize, ((uint64_t *)MIB.AccessHistogram));
       if (!F.IsInlineFrame)
         break;
     }
