@@ -293,17 +293,21 @@ struct Allocator {
     Print(Value->mib, Key, bool(Arg));
   }
 
-  static MemInfoBlock CreateNewMIBWithHistogram(uptr p, MemprofChunk* m, u64 user_size){
+  static MemInfoBlock CreateNewMIBWithHistogram(uptr p, MemprofChunk *m,
+                                                u64 user_size) {
     u64 c = GetShadowCount(p, user_size);
     long curtime = GetTimestamp();
+    // uint32_t HistogramSize = RoundUpTo(user_size, 8) / 8;
     uint32_t HistogramSize = user_size / 8;
-    uintptr_t  Histogram = (uintptr_t) InternalAlloc(user_size * sizeof(uint64_t));
-    memset((void*) Histogram,0,user_size * sizeof(uint64_t));
-    for(size_t i = 0; i < HistogramSize;++i){
-      u8 CounterPtr =  *((u8*) MEM_TO_SHADOW_COUNTER(p + 8 * i));
-      ((uint64_t*) Histogram)[i] = ((uint64_t) CounterPtr);
+    uintptr_t Histogram =
+        (uintptr_t)InternalAlloc(HistogramSize * sizeof(uint64_t));
+    memset((void *)Histogram, 0, user_size * sizeof(uint64_t));
+    for (size_t i = 0; i < HistogramSize; ++i) {
+      u8 CounterPtr = *((u8 *)MEM_TO_SHADOW_COUNTER(p + 8 * i));
+      ((uint64_t *)Histogram)[i] = ((uint64_t)CounterPtr);
     }
-    MemInfoBlock  newMIB(user_size, c, m->timestamp_ms,curtime,m->cpu_id,GetCpuId(), Histogram, HistogramSize);
+    MemInfoBlock newMIB(user_size, c, m->timestamp_ms, curtime, m->cpu_id,
+                        GetCpuId(), Histogram, HistogramSize);
     return newMIB;
   }
 
