@@ -278,20 +278,19 @@ struct Frame {
 
 // A type representing the index into the table of call stacks.
 using CallStackId = uint64_t;
-using HistogramPtr = uint64_t *;
+
 struct AccessCountHistogram {
   uint64_t Size;
-  uint64_t *HistogramPtr;
+  uint64_t *Ptr;
 
   AccessCountHistogram() = default;
 
-  AccessCountHistogram(uint64_t Size, uint64_t *HistogramPtr)
-      : Size(Size), HistogramPtr(HistogramPtr) {}
+  AccessCountHistogram(uint64_t Size, uint64_t *Ptr) : Size(Size), Ptr(Ptr) {}
 
   size_t serializedSize(IndexedVersion Version) const;
 
   bool operator==(const AccessCountHistogram &Other) const {
-    if (Other.HistogramPtr == HistogramPtr)
+    if (Other.Ptr == Ptr)
       return true;
     else
       return false;
@@ -304,7 +303,7 @@ struct AccessCountHistogram {
   void printYAML(llvm::raw_ostream &OS) const {
     //   OS << "      -H:";
     //   for (size_t i = 0; i < Size; ++i) {
-    //     OS << "- " << HistogramPtr[i];
+    //     OS << "- " << Ptr[i];
     //   }
     //   OS << "\n";
   }

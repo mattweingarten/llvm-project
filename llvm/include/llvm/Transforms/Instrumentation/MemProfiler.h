@@ -19,6 +19,8 @@ namespace llvm {
 class Function;
 class Module;
 
+using FieldAccessesT = std::vector<uint64_t>;
+
 namespace vfs {
 class FileSystem;
 } // namespace vfs

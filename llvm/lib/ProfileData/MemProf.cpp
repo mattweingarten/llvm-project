@@ -126,9 +126,9 @@ static void serializeV0(const IndexedMemProfRecord &Record,
   for (const auto &Histogram : Record.AccessCountHistograms) {
     LE.write<uint64_t>(Histogram.Size);
     for (uint64_t I = 0; I < Histogram.Size; I++) {
-      LE.write<uint64_t>(Histogram.HistogramPtr[I]);
+      LE.write<uint64_t>(Histogram.Ptr[I]);
     }
-    free(Histogram.HistogramPtr);
+    free(Histogram.Ptr);
   }
 }
 
@@ -212,10 +212,9 @@ static IndexedMemProfRecord deserializeV0(const MemProfSchema &Schema,
     AccessCountHistogram Histogram;
     Histogram.Size =
         endian::readNext<uint64_t, llvm::endianness::little, unaligned>(Ptr);
-    Histogram.HistogramPtr =
-        (uint64_t *)malloc(Histogram.Size * sizeof(uint64_t));
+    Histogram.Ptr = (uint64_t *)malloc(Histogram.Size * sizeof(uint64_t));
     for (uint64_t M = 0; M < Histogram.Size; M++) {
-      Histogram.HistogramPtr[M] =
+      Histogram.Ptr[M] =
           endian::readNext<uint64_t, llvm::endianness::little, unaligned>(Ptr);
     }
     Record.AccessCountHistograms.push_back(Histogram);
