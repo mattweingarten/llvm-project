@@ -69,9 +69,10 @@ void Print(const MemInfoBlock &M, const u64 id, bool print_terse) {
            M.NumMigratedCpu, M.NumLifetimeOverlaps, M.NumSameAllocCpu,
            M.NumSameDeallocCpu);
     Printf("AcccessCountHistogram[%u]: ", M.AccessHistogramSize);
-    uint32_t PrintSize = M.AccessHistogramSize > 32U ? 32U : M.AccessHistogramSize; 
-    for(size_t i = 0; i < PrintSize; ++i){
-      Printf("%llu ", ((uint64_t*)M.AccessHistogram)[i]);
+    uint32_t PrintSize =
+        M.AccessHistogramSize > 32U ? 32U : M.AccessHistogramSize;
+    for (size_t i = 0; i < PrintSize; ++i) {
+      Printf("%llu ", ((uint64_t *)M.AccessHistogram)[i]);
     }
     Printf("\n");
   }
@@ -235,10 +236,10 @@ void ClearShadow(uptr addr, uptr size) {
   uptr shadow_beg = MEM_TO_SHADOW(addr);
   uptr shadow_end = MEM_TO_SHADOW(addr + size - SHADOW_GRANULARITY) + 1;
   if (shadow_end - shadow_beg < common_flags()->clear_shadow_mmap_threshold) {
-    // Previous implementation (in comments next line) caused error where not all 
-    // counters were cleared correctly. We apply simple version here for now.
-    // REAL(memset)((void *)shadow_beg, 0, shadow_end - shadow_beg);
-    for (; shadow_8 < shadow_end_8; shadow_8++){
+    // Previous implementation (in comments next line) caused error where not
+    // all counters were cleared correctly. We apply simple version here for
+    // now. REAL(memset)((void *)shadow_beg, 0, shadow_end - shadow_beg);
+    for (; shadow_8 < shadow_end_8; shadow_8++) {
       *shadow_8 = 0;
     }
   } else {
@@ -297,11 +298,10 @@ struct Allocator {
                                                 u64 user_size) {
     u64 c = GetShadowCount(p, user_size);
     long curtime = GetTimestamp();
-    // uint32_t HistogramSize = RoundUpTo(user_size, 8) / 8;
-    uint32_t HistogramSize = user_size / 8;
+    uint32_t HistogramSize = RoundUpTo(user_size, 8) / 8;
     uintptr_t Histogram =
         (uintptr_t)InternalAlloc(HistogramSize * sizeof(uint64_t));
-    memset((void *)Histogram, 0, user_size * sizeof(uint64_t));
+    memset((void *)Histogram, 0, HistogramSize * sizeof(uint64_t));
     for (size_t i = 0; i < HistogramSize; ++i) {
       u8 CounterPtr = *((u8 *)MEM_TO_SHADOW_COUNTER(p + 8 * i));
       ((uint64_t *)Histogram)[i] = ((uint64_t)CounterPtr);
@@ -351,7 +351,8 @@ struct Allocator {
           if (!m)
             return;
           uptr user_beg = ((uptr)m) + kChunkHeaderSize;
-          MemInfoBlock newMIB = CreateNewMIBWithHistogram(user_beg, m, user_requested_size);
+          MemInfoBlock newMIB =
+              CreateNewMIBWithHistogram(user_beg, m, user_requested_size);
           InsertOrMerge(m->alloc_context_id, newMIB, A->MIBMap);
         },
         this);
@@ -480,8 +481,8 @@ struct Allocator {
         atomic_exchange(&m->user_requested_size, 0, memory_order_acquire);
     if (memprof_inited && atomic_load_relaxed(&constructed) &&
         !atomic_load_relaxed(&destructing)) {
-      MemInfoBlock newMIB = CreateNewMIBWithHistogram(p, m, user_requested_size);
-      // Printf("Pointer: 0x%llx -> 0x%lx\n",p,user_requested_size);
+      MemInfoBlock newMIB =
+          CreateNewMIBWithHistogram(p, m, user_requested_size);
       InsertOrMerge(m->alloc_context_id, newMIB, MIBMap);
     }
 
