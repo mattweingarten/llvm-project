@@ -658,9 +658,40 @@ stackFrameIncludesInlinedCallStack(ArrayRef<Frame> ProfileCallStack,
     if (StackId != *InlCallStackIter)
       return false;
   }
-  // Return true if we found and matched all stack ids from the call
+  // Return true if we found and matched all ste(ack ids from the call
   // instruction.
   return InlCallStackIter == InlinedCallStack.end();
+}
+
+// TODO: Add handling of embedded structs
+static FieldAccessesT mergeStructLayoutAndHistogram(const StructLayout *SL,
+                                                    const AllocationInfo *AI) {
+  size_t NumFields = SL->getMemberOffsets().size();
+  FieldAccessesT FieldAccesses = FieldAccessesT(NumFields);
+
+  size_t FullSize = SL->getSizeInBytes();
+  size_t I = 0;
+  for (auto CurrOffset : SL->getMemberOffsets()) {
+
+    size_t NextOffset;
+    if (I < NumFields - 1) {
+      NextOffset = SL->getElementOffset(I + 1);
+    } else {
+      NextOffset = FullSize;
+    }
+    size_t OffsetIt = CurrOffset;
+    while (OffsetIt < NextOffset) {
+      size_t HistogramIdx = OffsetIt / 8;
+      FieldAccesses[I] += AI->Histogram.Ptr[HistogramIdx];
+      OffsetIt += 8;
+    }
+    size_t FieldSize = NextOffset - CurrOffset;
+    LLVM_DEBUG(dbgs() << CurrOffset << "-> " << NextOffset << ": " << FieldSize
+                      << ", ");
+    I++;
+  }
+  LLVM_DEBUG(dbgs() << "\n");
+  return FieldAccesses;
 }
 
 // This function returns the struct layout of an instruction that is
@@ -699,10 +730,24 @@ resolveStructLayout(LLVMContext &Ctx, const DataLayout &DL, Instruction &I) {
     if (!STy)
       return std::nullopt;
   }
-  LLVM_DEBUG(dbgs() << "Found Type for this name: ");
+  LLVM_DEBUG(dbgs() << "Found Type  ");
   LLVM_DEBUG(STy->dump());
   LLVM_DEBUG(dbgs() << "\n");
   const StructLayout *SL = DL.getStructLayout(STy);
+
+  LLVM_DEBUG(dbgs() << "Has Padding: " << SL->hasPadding() << "\n");
+  LLVM_DEBUG(dbgs() << "Number of Elements: " << SL->getMemberOffsets().size()
+                    << "\n");
+  // LLVM_DEBUG(SL->dump());
+  // for (size_t i = 0; i < SL->NumElements; i++) {
+  //   /* code */
+  // }
+
+  // for (auto MemberOffset : SL->getMemberOffsets()) {
+  //   MemberOffset
+  //   // LLVM_DEBUG(dbgs() <<)
+  //   // LLVM_DEBUG(mo.dump());
+  // }
   return std::make_optional<const StructLayout *>(SL);
 }
 
@@ -805,10 +850,7 @@ static void readMemprof(Module &M, Function &F,
       auto *CI = dyn_cast<CallBase>(&I);
       if (!CI)
         continue;
-
       auto *CalledFunction = CI->getCalledFunction();
-      std::optional<const StructLayout *> STyOpt = resolveStructLayout(Ctx, DL, I);
-
       if (CalledFunction && CalledFunction->isIntrinsic())
         continue;
       // List of call stack ids computed from the location hashes on debug
@@ -873,6 +915,19 @@ static void readMemprof(Module &M, Function &F,
           if (stackFrameIncludesInlinedCallStack(AllocInfo->CallStack,
                                                  InlinedCallStack))
             addCallStack(AllocTrie, AllocInfo);
+
+          std::optional<const StructLayout *> STyOpt =
+              resolveStructLayout(Ctx, DL, I);
+
+          if (STyOpt) {
+            FieldAccessesT FieldAccesses =
+                mergeStructLayoutAndHistogram(*STyOpt, AllocInfo);
+            LLVM_DEBUG(dbgs() << "FieldAccess: ");
+            for (auto a : FieldAccesses) {
+              LLVM_DEBUG(dbgs() << " " << a);
+            }
+            LLVM_DEBUG(dbgs() << "\n");
+          }
         }
         // We might not have matched any to the full inlined call stack.
         // But if we did, create and attach metadata, or a function attribute if
