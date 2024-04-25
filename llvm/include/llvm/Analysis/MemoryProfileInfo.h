@@ -18,10 +18,13 @@
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/ModuleSummaryIndex.h"
+#include "llvm/ProfileData/MemProf.h"
 #include <map>
 
 namespace llvm {
 namespace memprof {
+
+using FieldAccessesT = llvm::SmallVector<uint64_t, 8>;
 
 /// Return the allocation type for a given set of memory profile values.
 AllocationType getAllocType(uint64_t TotalLifetimeAccessDensity,
@@ -65,6 +68,10 @@ private:
   // The allocation's leaf stack id.
   uint64_t AllocStackId = 0;
 
+  FieldAccessesT FieldAccesses;
+
+  bool HasFieldAccesses;
+
   void deleteTrieNode(CallStackTrieNode *Node) {
     if (!Node)
       return;
@@ -81,6 +88,7 @@ private:
 
 public:
   CallStackTrie() = default;
+  CallStackTrie(bool HasFieldAccesses) : HasFieldAccesses(HasFieldAccesses) {};
   ~CallStackTrie() { deleteTrieNode(Alloc); }
 
   bool empty() const { return Alloc == nullptr; }
@@ -104,6 +112,9 @@ public:
   /// which is lower overhead and more direct than maintaining this metadata.
   /// Returns true if memprof metadata attached, false if not (attribute added).
   bool buildAndAttachMIBMetadata(CallBase *CI);
+
+  void mergeStructLayoutAndHistogram(const StructLayout *SL,
+                                     AccessCountHistogram H);
 };
 
 /// Helper class to iterate through stack ids in both metadata (memprof MIB and

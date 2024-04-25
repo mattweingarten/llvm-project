@@ -920,13 +920,8 @@ static void readMemprof(Module &M, Function &F,
               resolveStructLayout(Ctx, DL, I);
 
           if (STyOpt) {
-            FieldAccessesT FieldAccesses =
-                mergeStructLayoutAndHistogram(*STyOpt, AllocInfo);
-            LLVM_DEBUG(dbgs() << "FieldAccess: ");
-            for (auto a : FieldAccesses) {
-              LLVM_DEBUG(dbgs() << " " << a);
-            }
-            LLVM_DEBUG(dbgs() << "\n");
+            AllocTrie.mergeStructLayoutAndHistogram(*STyOpt,
+                                                    AllocInfo->Histogram);
           }
         }
         // We might not have matched any to the full inlined call stack.

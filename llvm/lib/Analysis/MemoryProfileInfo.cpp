@@ -11,7 +11,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Analysis/MemoryProfileInfo.h"
+#include "llvm/ProfileData/MemProf.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Debug.h"
 
 using namespace llvm;
 using namespace llvm::memprof;
@@ -257,8 +259,45 @@ bool CallStackTrie::buildAndAttachMIBMetadata(CallBase *CI) {
   // and all node in the chain have multi alloc type, conservatively give
   // it non-cold allocation type.
   // FIXME: Avoid this case before memory profile created.
-  addAllocTypeAttribute(Ctx, CI, AllocationType::NotCold);
+  // addAllocTypeAttribute(Ctx, CI, AllocationType::NotCold);
   return false;
+}
+
+// TODO: Add handling of embedded structs
+void CallStackTrie::mergeStructLayoutAndHistogram(const StructLayout *SL,
+                                                  AccessCountHistogram H) {
+  size_t NumFields = SL->getMemberOffsets().size();
+  FieldAccessesT FieldAccesses = FieldAccessesT(NumFields);
+
+  size_t FullSize = SL->getSizeInBytes();
+  size_t I = 0;
+  for (auto CurrOffset : SL->getMemberOffsets()) {
+
+    size_t NextOffset;
+    if (I < NumFields - 1) {
+      NextOffset = SL->getElementOffset(I + 1);
+    } else {
+      NextOffset = FullSize;
+    }
+    size_t OffsetIt = CurrOffset;
+    while (OffsetIt < NextOffset) {
+      size_t HistogramIdx = OffsetIt / 8;
+      FieldAccesses[I] += H.Ptr[HistogramIdx];
+      OffsetIt += 8;
+    }
+    size_t FieldSize = NextOffset - CurrOffset;
+    LLVM_DEBUG(dbgs() << CurrOffset << "-> " << NextOffset << ": " << FieldSize
+                      << ", ");
+    I++;
+  }
+  LLVM_DEBUG(dbgs() << "\n");
+
+  LLVM_DEBUG(dbgs() << "FieldAccess: ");
+  for (auto a : FieldAccesses) {
+    LLVM_DEBUG(dbgs() << " " << a);
+  }
+  LLVM_DEBUG(dbgs() << "\n");
+  return;
 }
 
 template <>
