@@ -641,10 +641,74 @@ static void addCallStack(CallStackTrie &AllocTrie,
   AllocTrie.addCallStack(AllocType, StackIds);
 }
 
-// Helper to compare the InlinedCallStack computed from an instruction's debug
-// info to a list of Frames from profile data (either the allocation data or a
-// callsite). For callsites, the StartIndex to use in the Frame array may be
-// non-zero.
+static void mergeStructLayoutAndHistogram(FieldAccessesT &FieldAccesses,
+                                          const StructLayout *SL,
+                                          AccessCountHistogram H) {
+
+  size_t NumFields = SL->getMemberOffsets().size();
+  // FieldAccessesT *FieldAccesses = new FieldAccessesT(NumFields);
+
+  size_t FullSize = SL->getSizeInBytes();
+  size_t I = 0;
+  for (auto CurrOffset : SL->getMemberOffsets()) {
+
+    size_t NextOffset;
+    if (I < NumFields - 1) {
+      NextOffset = SL->getElementOffset(I + 1);
+    } else {
+      NextOffset = FullSize;
+    }
+    size_t OffsetIt = CurrOffset;
+    while (OffsetIt < NextOffset) {
+      size_t HistogramIdx = OffsetIt / 8;
+      FieldAccesses[I] += H.Ptr[HistogramIdx];
+      OffsetIt += 8;
+    }
+    size_t FieldSize = NextOffset - CurrOffset;
+    LLVM_DEBUG(dbgs() << CurrOffset << "-> " << NextOffset << ": " << FieldSize
+                      << ", ");
+    I++;
+  }
+  LLVM_DEBUG(dbgs() << "\n");
+
+  LLVM_DEBUG(dbgs() << "FieldAccess: ");
+  for (auto a : FieldAccesses) {
+    LLVM_DEBUG(dbgs() << " " << a);
+  }
+  LLVM_DEBUG(dbgs() << "\n");
+  return;
+}
+
+static void buildAndAttachHistogramMetadata(
+    CallBase *CI,
+    const llvm::SmallVector<FieldAccessesT, 8> &AllocationFieldAccesses,
+    const llvm::SmallVector<const AllocationInfo *, 8> &AllocInfos) {
+  auto &Ctx = CI->getContext();
+  std::vector<Metadata *> OutMIBNodes;
+  for (size_t I = 0; I < AllocationFieldAccesses.size(); I++) {
+    auto *AllocInfo = AllocInfos[I];
+    auto FieldAccesses = AllocationFieldAccesses[I];
+    SmallVector<uint64_t> StackIds;
+    for (const auto &StackFrame : AllocInfo->CallStack)
+      StackIds.push_back(computeStackId(StackFrame));
+
+    std::vector<Metadata *> InnerMIBNodes;
+
+    InnerMIBNodes.push_back(buildCallstackMetadata(StackIds, Ctx));
+
+    InnerMIBNodes.push_back(buildHistogramMetadata(FieldAccesses, Ctx));
+    OutMIBNodes.push_back(MDNode::get(Ctx, InnerMIBNodes));
+  }
+
+  CI->setMetadata(LLVMContext::MD_memprof_histogram,
+                  MDNode::get(Ctx, OutMIBNodes));
+  return;
+}
+
+// Helper to compare the InlinedCallStack computed from an instruction's
+// debug info to a list of Frames from profile data (either the allocation
+// data or a callsite). For callsites, the StartIndex to use in the Frame
+// array may be non-zero.
 static bool
 stackFrameIncludesInlinedCallStack(ArrayRef<Frame> ProfileCallStack,
                                    ArrayRef<uint64_t> InlinedCallStack,
@@ -908,6 +972,8 @@ static void readMemprof(Module &M, Function &F,
         // contexts. Add them to a Trie specialized for trimming the contexts to
         // the minimal needed to disambiguate contexts with unique behavior.
         CallStackTrie AllocTrie;
+        llvm::SmallVector<FieldAccessesT, 8> AlloctionFieldAccesses;
+        llvm::SmallVector<const AllocationInfo *, 8> AllocationInfos;
         for (auto *AllocInfo : AllocInfoIter->second) {
           // Check the full inlined call stack against this one.
           // If we found and thus matched all frames on the call, include
@@ -918,12 +984,16 @@ static void readMemprof(Module &M, Function &F,
 
           std::optional<const StructLayout *> STyOpt =
               resolveStructLayout(Ctx, DL, I);
-
+          FieldAccessesT FieldAccesses((*STyOpt)->getMemberOffsets().size());
           if (STyOpt) {
-            AllocTrie.mergeStructLayoutAndHistogram(*STyOpt,
-                                                    AllocInfo->Histogram);
+            mergeStructLayoutAndHistogram(FieldAccesses, *STyOpt,
+                                          AllocInfo->Histogram);
+            AlloctionFieldAccesses.push_back(FieldAccesses);
+            AllocationInfos.push_back(AllocInfo);
           }
         }
+        buildAndAttachHistogramMetadata(CI, AlloctionFieldAccesses,
+                                        AllocationInfos);
         // We might not have matched any to the full inlined call stack.
         // But if we did, create and attach metadata, or a function attribute if
         // all contexts have identical profiled behavior.

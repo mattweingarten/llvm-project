@@ -81,6 +81,22 @@ MDNode *llvm::memprof::getMIBStackNode(const MDNode *MIB) {
   return cast<MDNode>(MIB->getOperand(0));
 }
 
+MDNode *llvm::memprof::buildHistogramMetadata(FieldAccessesT FieldAccesses,
+                                              LLVMContext &Ctx) {
+
+  LLVM_DEBUG(dbgs() << "building Histogram with fields: "
+                    << FieldAccesses.size());
+  std::vector<Metadata *> HistogramEntries;
+  for (auto Entry : FieldAccesses) {
+    auto *HistogramEntry =
+        ValueAsMetadata::get(ConstantInt::get(Type::getInt64Ty(Ctx), Entry));
+    HistogramEntries.push_back(HistogramEntry);
+  }
+  MDNode *HistRes = MDNode::get(Ctx, HistogramEntries);
+  LLVM_DEBUG(HistRes->dump());
+  return HistRes;
+}
+
 AllocationType llvm::memprof::getMIBAllocType(const MDNode *MIB) {
   assert(MIB->getNumOperands() == 2);
   // The allocation type is currently the second operand of each memprof
@@ -130,8 +146,13 @@ void CallStackTrie::addCallStack(AllocationType AllocType,
                                  ArrayRef<uint64_t> StackIds) {
   bool First = true;
   CallStackTrieNode *Curr = nullptr;
-  for (auto StackId : StackIds) {
+  for (size_t I = 0; I < StackIds.size(); I++) {
+    auto StackId = StackIds[I];
+    // for (auto StackId : StackIds) {
     // If this is the first stack frame, add or update alloc node.
+
+    bool Last = I == StackIds.size() - 1;
+
     if (First) {
       First = false;
       if (Alloc) {
@@ -245,7 +266,7 @@ bool CallStackTrie::buildAndAttachMIBMetadata(CallBase *CI) {
   std::vector<uint64_t> MIBCallStack;
   MIBCallStack.push_back(AllocStackId);
   std::vector<Metadata *> MIBNodes;
-  assert(!Alloc->Callers.empty() && "addCallStack has not been called yet");
+  // assert(!Alloc->Callers.empty() && "addCallStack has not been called yet");
   // The last parameter is meant to say whether the callee of the given node
   // has more than one caller. Here the node being passed in is the alloc
   // and it has no callees. So it's false.
@@ -259,46 +280,11 @@ bool CallStackTrie::buildAndAttachMIBMetadata(CallBase *CI) {
   // and all node in the chain have multi alloc type, conservatively give
   // it non-cold allocation type.
   // FIXME: Avoid this case before memory profile created.
-  // addAllocTypeAttribute(Ctx, CI, AllocationType::NotCold);
+  addAllocTypeAttribute(Ctx, CI, AllocationType::NotCold);
   return false;
 }
 
 // TODO: Add handling of embedded structs
-void CallStackTrie::mergeStructLayoutAndHistogram(const StructLayout *SL,
-                                                  AccessCountHistogram H) {
-  size_t NumFields = SL->getMemberOffsets().size();
-  FieldAccessesT FieldAccesses = FieldAccessesT(NumFields);
-
-  size_t FullSize = SL->getSizeInBytes();
-  size_t I = 0;
-  for (auto CurrOffset : SL->getMemberOffsets()) {
-
-    size_t NextOffset;
-    if (I < NumFields - 1) {
-      NextOffset = SL->getElementOffset(I + 1);
-    } else {
-      NextOffset = FullSize;
-    }
-    size_t OffsetIt = CurrOffset;
-    while (OffsetIt < NextOffset) {
-      size_t HistogramIdx = OffsetIt / 8;
-      FieldAccesses[I] += H.Ptr[HistogramIdx];
-      OffsetIt += 8;
-    }
-    size_t FieldSize = NextOffset - CurrOffset;
-    LLVM_DEBUG(dbgs() << CurrOffset << "-> " << NextOffset << ": " << FieldSize
-                      << ", ");
-    I++;
-  }
-  LLVM_DEBUG(dbgs() << "\n");
-
-  LLVM_DEBUG(dbgs() << "FieldAccess: ");
-  for (auto a : FieldAccesses) {
-    LLVM_DEBUG(dbgs() << " " << a);
-  }
-  LLVM_DEBUG(dbgs() << "\n");
-  return;
-}
 
 template <>
 CallStack<MDNode, MDNode::op_iterator>::CallStackIterator::CallStackIterator(
