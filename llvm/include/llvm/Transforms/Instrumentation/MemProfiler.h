@@ -13,12 +13,22 @@
 #define LLVM_TRANSFORMS_INSTRUMENTATION_MEMPROFILER_H
 
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
+#include "llvm/Analysis/MemoryProfileInfo.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/ProfileData/InstrProfReader.h"
+#include "llvm/ProfileData/MemProf.h"
+#include "llvm/Support/Caching.h"
 
 namespace llvm {
 class Function;
 class Module;
 
+struct MemprofUsePassOptions {
+  std::string ProfileFileName;
+  std::string AccessCountFileName;
+  bool dumpYAML;
+};
 
 namespace vfs {
 class FileSystem;
@@ -49,13 +59,27 @@ public:
 
 class MemProfUsePass : public PassInfoMixin<MemProfUsePass> {
 public:
-  explicit MemProfUsePass(std::string MemoryProfileFile,
+  explicit MemProfUsePass(MemprofUsePassOptions MemProfOpt,
                           IntrusiveRefCntPtr<vfs::FileSystem> FS = nullptr);
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
 
+  explicit MemProfUsePass(std::string MemoryProfileFileName,
+                          IntrusiveRefCntPtr<vfs::FileSystem> FS = nullptr);
+
 private:
   std::string MemoryProfileFileName;
+  std::string AccessCountFileName;
   IntrusiveRefCntPtr<vfs::FileSystem> FS;
+  std::unique_ptr<llvm::raw_fd_ostream> OF;
+  bool dumpYAML;
+  void readMemprof(Module &M, Function &F,
+                   IndexedInstrProfReader *MemProfReader,
+                   const TargetLibraryInfo &TLI, LLVMContext &Ctx,
+                   const DataLayout &DL);
+
+  void printYAML(StructType *STy, memprof::FieldAccessesT &FieldAccesses,
+                 const memprof::AllocationInfo *AllocInfo);
+  bool shouldDumpAccessCounts();
 };
 
 } // namespace llvm

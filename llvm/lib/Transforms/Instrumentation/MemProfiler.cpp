@@ -762,7 +762,7 @@ static FieldAccessesT mergeStructLayoutAndHistogram(const StructLayout *SL,
 // an allocation call originating from "new"
 // It makes the assumption that all allocations calls are followed by
 // the cunstructor.
-static std::optional<const StructLayout *>
+static std::optional<StructType *>
 resolveStructLayout(LLVMContext &Ctx, const DataLayout &DL, Instruction &I) {
 
   Instruction *NextInstr = I.getNextNonDebugInstruction(false);
@@ -797,11 +797,14 @@ resolveStructLayout(LLVMContext &Ctx, const DataLayout &DL, Instruction &I) {
   LLVM_DEBUG(dbgs() << "Found Type  ");
   LLVM_DEBUG(STy->dump());
   LLVM_DEBUG(dbgs() << "\n");
-  const StructLayout *SL = DL.getStructLayout(STy);
 
-  LLVM_DEBUG(dbgs() << "Has Padding: " << SL->hasPadding() << "\n");
-  LLVM_DEBUG(dbgs() << "Number of Elements: " << SL->getMemberOffsets().size()
-                    << "\n");
+  return std::make_optional<StructType *>(STy);
+  // const StructLayout *SL = DL.getStructLayout(STy);
+
+  // LLVM_DEBUG(dbgs() << "Has Padding: " << SL->hasPadding() << "\n");
+  // LLVM_DEBUG(dbgs() << "Number of Elements: " <<
+  // SL->getMemberOffsets().size()
+  //                   << "\n");
   // LLVM_DEBUG(SL->dump());
   // for (size_t i = 0; i < SL->NumElements; i++) {
   //   /* code */
@@ -812,13 +815,37 @@ resolveStructLayout(LLVMContext &Ctx, const DataLayout &DL, Instruction &I) {
   //   // LLVM_DEBUG(dbgs() <<)
   //   // LLVM_DEBUG(mo.dump());
   // }
-  return std::make_optional<const StructLayout *>(SL);
+  // return std::make_optional<const StructLayout *>(SL);
 }
 
-static void readMemprof(Module &M, Function &F,
-                        IndexedInstrProfReader *MemProfReader,
-                        const TargetLibraryInfo &TLI, LLVMContext &Ctx,
-                        const DataLayout &DL) {
+void MemProfUsePass::printYAML(StructType *STy, FieldAccessesT &FieldAccesses,
+                               const AllocationInfo *AllocInfo) {
+  *(this->OF.get()) << "- AllocInfo: \n";
+  *(this->OF.get()) << "    - Name: _" << *STy;
+
+  *(this->OF.get()) << "\n";
+
+  *(this->OF.get()) << "    - FieldAccesses:";
+
+  for (auto FA : FieldAccesses) {
+    *(this->OF.get()) << " -" << FA;
+  }
+  *(this->OF.get()) << "\n";
+
+  *(this->OF.get()) << "    - Callsite IDs:";
+  for (auto Frame : AllocInfo->CallStack) {
+    auto ID = computeStackId(Frame);
+    *(this->OF.get()) << " -" << ID;
+  }
+  *(this->OF.get()) << "\n";
+  return;
+}
+
+void MemProfUsePass::readMemprof(Module &M, Function &F,
+                                 IndexedInstrProfReader *MemProfReader,
+                                 const TargetLibraryInfo &TLI, LLVMContext &Ctx,
+                                 const DataLayout &DL) {
+
   // Previously we used getIRPGOFuncName() here. If F is local linkage,
   // getIRPGOFuncName() returns FuncName with prefix 'FileName;'. But
   // llvm-profdata uses FuncName in dwarf to create GUID which doesn't
@@ -982,14 +1009,19 @@ static void readMemprof(Module &M, Function &F,
                                                  InlinedCallStack))
             addCallStack(AllocTrie, AllocInfo);
 
-          std::optional<const StructLayout *> STyOpt =
-              resolveStructLayout(Ctx, DL, I);
-          FieldAccessesT FieldAccesses((*STyOpt)->getMemberOffsets().size());
+          std::optional<StructType *> STyOpt = resolveStructLayout(Ctx, DL, I);
+
           if (STyOpt) {
-            mergeStructLayoutAndHistogram(FieldAccesses, *STyOpt,
+            auto *STy = *STyOpt;
+            const StructLayout *SL = DL.getStructLayout(STy);
+            FieldAccessesT FieldAccesses(SL->getMemberOffsets().size());
+            mergeStructLayoutAndHistogram(FieldAccesses, SL,
                                           AllocInfo->Histogram);
             AlloctionFieldAccesses.push_back(FieldAccesses);
             AllocationInfos.push_back(AllocInfo);
+            if (shouldDumpAccessCounts()) {
+              printYAML(STy, FieldAccesses, AllocInfo);
+            }
           }
         }
         buildAndAttachHistogramMetadata(CI, AlloctionFieldAccesses,
@@ -1035,11 +1067,42 @@ static void readMemprof(Module &M, Function &F,
   }
 }
 
-MemProfUsePass::MemProfUsePass(std::string MemoryProfileFile,
+MemProfUsePass::MemProfUsePass(MemprofUsePassOptions MemProfOpt,
                                IntrusiveRefCntPtr<vfs::FileSystem> FS)
-    : MemoryProfileFileName(MemoryProfileFile), FS(FS) {
+    : MemoryProfileFileName(MemProfOpt.ProfileFileName), FS(FS),
+      dumpYAML(MemProfOpt.dumpYAML) {
   if (!FS)
     this->FS = vfs::getRealFileSystem();
+  int FD;
+
+  if (dumpYAML && MemProfOpt.AccessCountFileName.empty()) {
+    this->AccessCountFileName =
+        (Twine(MemProfOpt.ProfileFileName) + Twine(".yaml")).str();
+  } else {
+    this->AccessCountFileName = MemProfOpt.AccessCountFileName;
+  }
+
+  if (shouldDumpAccessCounts()) {
+    if (std::error_code EC =
+            sys::fs::openFileForWrite(AccessCountFileName, FD)) {
+      auto Err = errorCodeToError(EC);
+      errs() << Err;
+      return;
+    }
+    this->OF = std::make_unique<llvm::raw_fd_ostream>(FD, true);
+  }
+}
+
+MemProfUsePass::MemProfUsePass(std::string MemoryProfileFilename,
+                               IntrusiveRefCntPtr<vfs::FileSystem> FS)
+    : MemoryProfileFileName(MemoryProfileFilename), AccessCountFileName(""),
+      dumpYAML(false), FS(FS) {
+  if (!FS)
+    this->FS = vfs::getRealFileSystem();
+}
+
+bool MemProfUsePass::shouldDumpAccessCounts() {
+  return dumpYAML || !AccessCountFileName.empty();
 }
 
 PreservedAnalyses MemProfUsePass::run(Module &M, ModuleAnalysisManager &AM) {

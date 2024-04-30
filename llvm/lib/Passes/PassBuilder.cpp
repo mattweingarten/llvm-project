@@ -1078,14 +1078,25 @@ Expected<bool> parseSpeculativeExecutionPassOptions(StringRef Params) {
                                             "SpeculativeExecutionPass");
 }
 
-Expected<std::string> parseMemProfUsePassOptions(StringRef Params) {
-  std::string Result;
+Expected<MemprofUsePassOptions> parseMemProfUsePassOptions(StringRef Params) {
+
+  MemprofUsePassOptions Result;
+
   while (!Params.empty()) {
+
     StringRef ParamName;
     std::tie(ParamName, Params) = Params.split(';');
 
-    if (ParamName.consume_front("profile-filename=")) {
-      Result = ParamName.str();
+    errs() << ParamName << "\n";
+    if (ParamName.starts_with("profile-filename=")) {
+      ParamName.consume_front("profile-filename=");
+      Result.ProfileFileName = ParamName.str();
+    } else if (ParamName.starts_with("access-count-filename=")) {
+      ParamName.consume_front("access-count-filename=");
+      Result.AccessCountFileName = ParamName.str();
+    } else if (ParamName.starts_with("-dump")) {
+      ParamName.consume_front("-dump");
+      Result.dumpYAML = true;
     } else {
       return make_error<StringError>(
           formatv("invalid MemProfUse pass parameter '{0}' ", ParamName).str(),
