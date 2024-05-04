@@ -85,7 +85,10 @@ MODULE_PASS("lower-emutls", LowerEmuTLSPass())
 MODULE_PASS("lower-global-dtors", LowerGlobalDtorsPass())
 MODULE_PASS("lower-ifunc", LowerIFuncPass())
 MODULE_PASS("lowertypetests", LowerTypeTestsPass())
-MODULE_PASS("pgo-force-function-attrs", PGOForceFunctionAttrsPass(PGOOpt ? PGOOpt->ColdOptType : PGOOptions::ColdFuncOpt::Default))
+MODULE_PASS("pgo-force-function-attrs",
+            PGOForceFunctionAttrsPass(PGOOpt
+                                          ? PGOOpt->ColdOptType
+                                          : PGOOptions::ColdFuncOpt::Default))
 MODULE_PASS("memprof-context-disambiguation", MemProfContextDisambiguation())
 MODULE_PASS("memprof-module", ModuleMemProfilerPass())
 MODULE_PASS("mergefunc", MergeFunctionsPass())
@@ -141,6 +144,7 @@ MODULE_PASS("tsan-module", ModuleThreadSanitizerPass())
 MODULE_PASS("verify", VerifierPass())
 MODULE_PASS("view-callgraph", CallGraphViewerPass())
 MODULE_PASS("wholeprogramdevirt", WholeProgramDevirtPass())
+MODULE_PASS("alloc-type-annotation", AllocationTypeAnnotation())
 #undef MODULE_PASS
 
 #ifndef MODULE_PASS_WITH_PARAMS
@@ -152,7 +156,7 @@ MODULE_PASS_WITH_PARAMS(
     parseASanPassOptions, "kernel")
 MODULE_PASS_WITH_PARAMS(
     "cg-profile", "CGProfilePass",
-    [](bool InLTOPostLink) { return CGProfilePass(InLTOPostLink);},
+    [](bool InLTOPostLink) { return CGProfilePass(InLTOPostLink); },
     parseCGProfilePassOptions, "in-lto-post-link")
 MODULE_PASS_WITH_PARAMS(
     "global-merge", "GlobalMergePass",
@@ -244,7 +248,8 @@ CGSCC_PASS_WITH_PARAMS(
 FUNCTION_ANALYSIS("aa", AAManager())
 FUNCTION_ANALYSIS("access-info", LoopAccessAnalysis())
 FUNCTION_ANALYSIS("assumptions", AssumptionAnalysis())
-FUNCTION_ANALYSIS("bb-sections-profile-reader", BasicBlockSectionsProfileReaderAnalysis(TM))
+FUNCTION_ANALYSIS("bb-sections-profile-reader",
+                  BasicBlockSectionsProfileReaderAnalysis(TM))
 FUNCTION_ANALYSIS("block-freq", BlockFrequencyAnalysis())
 FUNCTION_ANALYSIS("branch-prob", BranchProbabilityAnalysis())
 FUNCTION_ANALYSIS("cycles", CycleAnalysis())
