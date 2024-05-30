@@ -11,14 +11,21 @@
 //===----------------------------------------------------------------------===//
 #ifndef LLVM_TRANSFORMS_INSTRUMENTATION_MEMPROFILER_H
 #define LLVM_TRANSFORMS_INSTRUMENTATION_MEMPROFILER_H
-
+#include "llvm/IR/DebugInfo.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
 #include "llvm/Analysis/MemoryProfileInfo.h"
+#include "llvm/Analysis/MemprofTypeAnalysis.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/ProfileData/InstrProfReader.h"
 #include "llvm/ProfileData/MemProf.h"
 #include "llvm/Support/Caching.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/Mutex.h"
+#include <mutex>
+
+#define DEBUG_TYPE "memprof"
+#define DUMP_YAML(X) *(this->OF.get()) << X
 
 namespace llvm {
 class Function;
@@ -39,8 +46,8 @@ class FileSystem;
 ///
 /// The profiler itself is a function pass that works by inserting various
 /// calls to the MemProfiler runtime library functions. The runtime library
-/// essentially replaces malloc() and free() with custom implementations that
-/// record data about the allocations.
+/// essentially replaces malloc() and free() with custom implementations
+/// that record data about the allocations.
 class MemProfilerPass : public PassInfoMixin<MemProfilerPass> {
 public:
   explicit MemProfilerPass();
@@ -59,6 +66,7 @@ public:
 
 class MemProfUsePass : public PassInfoMixin<MemProfUsePass> {
 public:
+  // explicit MemProfUsePass(const MemProfUsePass &MemprofUsePass);
   explicit MemProfUsePass(MemprofUsePassOptions MemProfOpt,
                           IntrusiveRefCntPtr<vfs::FileSystem> FS = nullptr);
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
@@ -71,11 +79,23 @@ private:
   std::string AccessCountFileName;
   IntrusiveRefCntPtr<vfs::FileSystem> FS;
   std::unique_ptr<llvm::raw_fd_ostream> OF;
+  std::map<uint64_t, Function *> IdToFunction;
+  std::map<uint64_t, uint64_t> CallStackIdToCalleeGuid;
+  DebugInfoFinder Finder;
+
   bool dumpYAML;
   void readMemprof(Module &M, Function &F,
                    IndexedInstrProfReader *MemProfReader,
                    const TargetLibraryInfo &TLI, LLVMContext &Ctx,
                    const DataLayout &DL);
+
+  std::optional<llvm::memprof::AllocTypeTree>
+  resolveStructTypeName(LLVMContext &Ctx, CallBase &CB,
+                        const memprof::AllocationInfo *AI);
+
+  std::optional<StructType *>
+  resolveStructType(LLVMContext &Ctx, const DataLayout &DL, CallBase &CB,
+                    const memprof::AllocationInfo *AI);
 
   void printYAML(StructType *STy, memprof::FieldAccessesT &FieldAccesses,
                  const memprof::AllocationInfo *AllocInfo);

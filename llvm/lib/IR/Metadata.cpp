@@ -339,7 +339,8 @@ void ReplaceableMetadataImpl::SalvageDebugInfo(const Constant &C) {
   ValueAsMetadata *MD = I->second;
   using UseTy =
       std::pair<void *, std::pair<MetadataTracking::OwnerTy, uint64_t>>;
-  // Copy out uses and update value of Constant used by debug info metadata with undef below
+  // Copy out uses and update value of Constant used by debug info metadata with
+  // undef below
   SmallVector<UseTy, 8> Uses(MD->UseMap.begin(), MD->UseMap.end());
 
   for (const auto &Pair : Uses) {
@@ -1797,10 +1798,9 @@ void GlobalObject::copyMetadata(const GlobalObject *Other, unsigned Offset) {
 void GlobalObject::addTypeMetadata(unsigned Offset, Metadata *TypeID) {
   addMetadata(
       LLVMContext::MD_type,
-      *MDTuple::get(getContext(),
-                    {ConstantAsMetadata::get(ConstantInt::get(
-                         Type::getInt64Ty(getContext()), Offset)),
-                     TypeID}));
+      *MDTuple::get(getContext(), {ConstantAsMetadata::get(ConstantInt::get(
+                                       Type::getInt64Ty(getContext()), Offset)),
+                                   TypeID}));
 }
 
 void GlobalObject::setVCallVisibilityMetadata(VCallVisibility Visibility) {

@@ -16,6 +16,7 @@
 
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
+#include "llvm/Analysis/AllocationTypeAnnotation.h"
 #include "llvm/Analysis/BasicAliasAnalysis.h"
 #include "llvm/Analysis/CGSCCPassManager.h"
 #include "llvm/Analysis/GlobalsModRef.h"
@@ -182,9 +183,9 @@ static cl::opt<bool> EnablePostPGOLoopRotation(
     "enable-post-pgo-loop-rotation", cl::init(true), cl::Hidden,
     cl::desc("Run the loop rotation transformation after PGO instrumentation"));
 
-static cl::opt<bool> EnableGlobalAnalyses(
-    "enable-global-analyses", cl::init(true), cl::Hidden,
-    cl::desc("Enable inter-procedural analyses"));
+static cl::opt<bool>
+    EnableGlobalAnalyses("enable-global-analyses", cl::init(true), cl::Hidden,
+                         cl::desc("Enable inter-procedural analyses"));
 
 static cl::opt<bool>
     RunPartialInlining("enable-partial-inlining", cl::init(false), cl::Hidden,
@@ -1108,11 +1109,10 @@ PassBuilder::buildModuleSimplificationPipeline(OptimizationLevel Level,
   // and prior to optimizing globals.
   // FIXME: This position in the pipeline hasn't been carefully considered in
   // years, it should be re-analyzed.
-  MPM.addPass(IPSCCPPass(
-              IPSCCPOptions(/*AllowFuncSpec=*/
-                            Level != OptimizationLevel::Os &&
-                            Level != OptimizationLevel::Oz &&
-                            !isLTOPreLink(Phase))));
+  MPM.addPass(IPSCCPPass(IPSCCPOptions(/*AllowFuncSpec=*/
+                                       Level != OptimizationLevel::Os &&
+                                       Level != OptimizationLevel::Oz &&
+                                       !isLTOPreLink(Phase))));
 
   // Attach metadata to indirect call sites indicating the set of functions
   // they may target at run-time. This should follow IPSCCP.
@@ -1530,6 +1530,8 @@ PassBuilder::buildPerModuleDefaultPipeline(OptimizationLevel Level,
   // Convert @llvm.global.annotations to !annotation metadata.
   MPM.addPass(Annotation2MetadataPass());
 
+  MPM.addPass(AllocationTypeAnnotation());
+
   // Force any function attributes we want the rest of the pipeline to observe.
   MPM.addPass(ForceFunctionAttrsPass());
 
@@ -1586,7 +1588,7 @@ PassBuilder::buildFatLTODefaultPipeline(OptimizationLevel Level, bool ThinLTO,
 ModulePassManager
 PassBuilder::buildThinLTOPreLinkDefaultPipeline(OptimizationLevel Level) {
   if (Level == OptimizationLevel::O0)
-    return buildO0DefaultPipeline(Level, /*LTOPreLink*/true);
+    return buildO0DefaultPipeline(Level, /*LTOPreLink*/ true);
 
   ModulePassManager MPM;
 
@@ -2045,6 +2047,8 @@ ModulePassManager PassBuilder::buildO0DefaultPipeline(OptimizationLevel Level,
 
   invokePipelineEarlySimplificationEPCallbacks(MPM, Level);
 
+  MPM.addPass(AllocationTypeAnnotation());
+
   // Build a minimal pipeline based on the semantics required by LLVM,
   // which is just that always inlining occurs. Further, disable generating
   // lifetime intrinsics to avoid enabling further optimizations during
@@ -2097,6 +2101,14 @@ ModulePassManager PassBuilder::buildO0DefaultPipeline(OptimizationLevel Level,
       MPM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
   }
 
+  // Add this here for testing so that clang always runs TBAA
+  errs() << "building pipeline...\n";
+  FunctionPassManager FPM;
+
+  buildTBAAPipeline();
+  // FPM.addPass(TypeBasedAA());
+  // MPM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
+
   ModulePassManager CoroPM;
   CoroPM.addPass(CoroEarlyPass());
   CGSCCPassManager CGPM;
@@ -2142,6 +2154,37 @@ AAManager PassBuilder::buildDefaultAAPipeline() {
   // Add target-specific alias analyses.
   if (TM)
     TM->registerDefaultAliasAnalyses(AA);
+
+  return AA;
+}
+
+AAManager PassBuilder::buildTBAAPipeline() {
+  AAManager AA;
+
+  errs() << "Building TBAA Pipeline\n";
+  // The order in which these are registered determines their priority when
+  // being queried.
+
+  // First we register the basic alias analysis that provides the majority of
+  // per-function local AA logic. This is a stateless, on-demand local set of
+  // AA techniques.
+  // AA.registerFunctionAnalysis<BasicAA>();
+
+  // Next we query fast, specialized alias analyses that wrap IR-embedded
+  // information about aliasing.
+  // AA.registerFunctionAnalysis<ScopedNoAliasAA>();
+  AA.registerFunctionAnalysis<TypeBasedAA>();
+
+  // Add support for querying global aliasing information when available.
+  // Because the `AAManager` is a function analysis and `GlobalsAA` is a module
+  // analysis, all that the `AAManager` can do is query for any *cached*
+  // results from `GlobalsAA` through a readonly proxy.
+  // if (EnableGlobalAnalyses)
+  //   AA.registerModuleAnalysis<GlobalsAA>();
+
+  // Add target-specific alias analyses.
+  // if (TM)
+  //   TM->registerDefaultAliasAnalyses(AA);
 
   return AA;
 }

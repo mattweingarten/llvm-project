@@ -1,3 +1,4 @@
+
 //===- MemProfiler.cpp - memory allocation and access profiler ------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -20,9 +21,12 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/MemoryProfileInfo.h"
+#include "llvm/Analysis/MemprofTypeAnalysis.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/Demangle/Demangle.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
@@ -34,6 +38,7 @@
 #include "llvm/IR/Value.h"
 #include "llvm/ProfileData/InstrProf.h"
 #include "llvm/ProfileData/InstrProfReader.h"
+#include "llvm/ProfileData/MemProf.h"
 #include "llvm/Support/BLAKE3.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -42,6 +47,7 @@
 #include "llvm/TargetParser/Triple.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
+
 #include <map>
 #include <set>
 
@@ -49,8 +55,6 @@ using namespace llvm;
 using namespace llvm::memprof;
 
 #define DEBUG_TYPE "memprof"
-#define STRUCT_PREFIX "struct."
-#define CLASS_PREFIX "class."
 
 namespace llvm {
 extern cl::opt<bool> PGOWarnMissing;
@@ -148,6 +152,8 @@ STATISTIC(NumSkippedStackReads, "Number of non-instrumented stack reads");
 STATISTIC(NumSkippedStackWrites, "Number of non-instrumented stack writes");
 STATISTIC(NumOfMemProfMissing, "Number of functions without memory profile.");
 
+llvm::sys::Mutex YamlFileLock;
+
 namespace {
 
 /// This struct defines the shadow mapping using the rule:
@@ -174,6 +180,11 @@ struct InterestingMemoryAccess {
   bool IsWrite;
   Type *AccessTy;
   Value *MaybeMask = nullptr;
+};
+
+auto GetOffset = [](const DILocation *DIL) {
+  return (DIL->getLine() - DIL->getScope()->getSubprogram()->getLine()) &
+         0xffff;
 };
 
 /// Instrument the code in module to profile memory accesses.
@@ -235,7 +246,9 @@ private:
 
 } // end anonymous namespace
 
-MemProfilerPass::MemProfilerPass() = default;
+MemProfilerPass::MemProfilerPass() {
+
+};
 
 PreservedAnalyses MemProfilerPass::run(Function &F,
                                        AnalysisManager<Function> &AM) {
@@ -758,81 +771,115 @@ static FieldAccessesT mergeStructLayoutAndHistogram(const StructLayout *SL,
   return FieldAccesses;
 }
 
-// This function returns the struct layout of an instruction that is
-// an allocation call originating from "new"
-// It makes the assumption that all allocations calls are followed by
-// the cunstructor.
-static std::optional<StructType *>
-resolveStructLayout(LLVMContext &Ctx, const DataLayout &DL, Instruction &I) {
-
-  Instruction *NextInstr = I.getNextNonDebugInstruction(false);
-  if (!NextInstr)
-    return std::nullopt;
-  auto *CI = dyn_cast<CallBase>(NextInstr);
-
-  if (!CI)
-    return std::nullopt;
-
-  Function *F = CI->getCalledFunction();
+static bool callBaseIsConstructor(CallBase &CB) {
+  Function *F = CB.getCalledFunction();
   if (!F)
-    return std::nullopt;
+    return false;
+  StringRef CalleeName = F->getName();
+  return (CalleeName.contains("C0") || CalleeName.contains("C1") ||
+          CalleeName.contains("C2"));
+}
 
-  auto *SbP = F->getSubprogram();
-  if (!SbP)
-    return std::nullopt;
+static StringRef getConstructorType(CallBase &CB) {
+  return CB.getCalledFunction()->getSubprogram()->getName();
+}
 
-  // LLVMContext stores struct types with "struct." prefix.
-  // this is a hacky way to get around this
-  // What do we do when we have arrays/classes?
-  StringRef CalleeName = F->getSubprogram()->getName();
-  auto StructFullName = Twine(STRUCT_PREFIX) + Twine(CalleeName.str());
-  auto ClassFullName = Twine(CLASS_PREFIX) + Twine(CalleeName.str());
+std::optional<AllocTypeTree>
+MemProfUsePass::resolveStructTypeName(LLVMContext &Ctx, CallBase &CB,
+                                      const AllocationInfo *AI) {
 
-  StructType *STy = StructType::getTypeByName(Ctx, StructFullName.str());
-  if (!STy) {
-    STy = StructType::getTypeByName(Ctx, ClassFullName.str());
-    if (!STy)
-      return std::nullopt;
+  // LLVM_DEBUG(dbgs() << "Resolving Struct Type Name!\n");
+
+  // Simple case: Allocation has heapallocsite metadata. Read type information
+  // and returnb
+  if (CB.hasMetadata("heapallocsite")) {
+    auto *MDNode = CB.getMetadata("heapallocsite");
+
+    DIType *DITyNode = dyn_cast<DIType>(MDNode);
+    if (DITyNode) {
+      // LLVM_DEBUG(dbgs() << "Found Heap Allocsite: "
+      // << CompositeTypeMD->getName().str() << "\n");
+      AllocTypeTree ATT(DITyNode);
+      return std::make_optional<AllocTypeTree>(ATT);
+    }
   }
-  LLVM_DEBUG(dbgs() << "Found Type  ");
-  LLVM_DEBUG(STy->dump());
-  LLVM_DEBUG(dbgs() << "\n");
 
-  return std::make_optional<StructType *>(STy);
-  // const StructLayout *SL = DL.getStructLayout(STy);
+  // Medium complicated case, AllocTypeAnnotation pass as already added helpful
+  // debug info
 
-  // LLVM_DEBUG(dbgs() << "Has Padding: " << SL->hasPadding() << "\n");
-  // LLVM_DEBUG(dbgs() << "Number of Elements: " <<
-  // SL->getMemberOffsets().size()
-  //                   << "\n");
-  // LLVM_DEBUG(SL->dump());
-  // for (size_t i = 0; i < SL->NumElements; i++) {
-  //   /* code */
-  // }
+  if (CB.hasMetadata(LLVMContext::MD_memprof_alloc_type)) {
+    const MDNode *AllocType =
+        CB.getMetadata(LLVMContext::MD_memprof_alloc_type);
+    assert(AllocType->getNumOperands() == 1);
+    const MDString *AllocTypeMDString =
+        cast<MDString>(AllocType->getOperand(0));
+    StringRef AllocatorName = AllocTypeMDString->getString();
+    std::string DemangledFuncName = llvm::demangle(AllocatorName);
+    LLVM_DEBUG(dbgs() << "Found AllocTypeAnotation with allocator type: "
+                      << DemangledFuncName << "\n");
+    std::optional<AllocTypeTree> ATTOpt =
+        AllocTypeTree::parseFuntionName(DemangledFuncName);
 
-  // for (auto MemberOffset : SL->getMemberOffsets()) {
-  //   MemberOffset
-  //   // LLVM_DEBUG(dbgs() <<)
-  //   // LLVM_DEBUG(mo.dump());
-  // }
-  // return std::make_optional<const StructLayout *>(SL);
+    if (ATTOpt) {
+      return ATTOpt;
+    }
+  }
+
+  // Simple case: We have no heapallocsite, but we might e able to resolve the
+  // name from the constructor call procedeeding the allocation call
+  Instruction *NextInstr = CB.getNextNonDebugInstruction(false);
+  if (NextInstr) {
+    auto *CI = dyn_cast<CallBase>(NextInstr);
+    if (CI && callBaseIsConstructor(*CI)) {
+
+      // LLVM_DEBUG(dbgs() << "Used Constructor name: "
+      //                   << getConstructorType(*CI).str() << "\n");
+      AllocTypeTree ATT(getConstructorType(*CI).str());
+      return std::make_optional<AllocTypeTree>(ATT);
+    }
+  }
+
+  // More complicated case: we have a container type:
+  // we need to walk the call stack and look for typeinformation
+  // This approach is not guaranteed to find the correct type information, as
+  // it may be lost due to inlining of the allocator
+  for (auto Frame : AI->CallStack) {
+    std::map<uint64_t, Function *>::iterator FunctionIter =
+        IdToFunction.find(Frame.Function);
+
+    LLVM_DEBUG(dbgs() << "Looking at function " << Frame.Function << "\n");
+
+    if (FunctionIter != IdToFunction.end()) {
+      Function *Function = FunctionIter->second;
+      std::string DemangledFuncName = llvm::demangle(Function->getName());
+      LLVM_DEBUG(dbgs() << "Demangled Function name: " << DemangledFuncName
+                        << "\n");
+
+      std::optional<AllocTypeTree> ATTOpt =
+          AllocTypeTree::parseFuntionName(DemangledFuncName);
+
+      if (ATTOpt) {
+        return ATTOpt;
+      }
+    }
+  }
+  return std::nullopt;
 }
 
 void MemProfUsePass::printYAML(StructType *STy, FieldAccessesT &FieldAccesses,
                                const AllocationInfo *AllocInfo) {
-  *(this->OF.get()) << "- AllocInfo: \n";
-  *(this->OF.get()) << "    - Name: _" << *STy;
+  *(this->OF.get()) << "  - Name: _" << *STy;
 
   *(this->OF.get()) << "\n";
 
-  *(this->OF.get()) << "    - FieldAccesses:";
+  *(this->OF.get()) << "    FieldAccesses:";
 
   for (auto FA : FieldAccesses) {
     *(this->OF.get()) << " -" << FA;
   }
   *(this->OF.get()) << "\n";
 
-  *(this->OF.get()) << "    - Callsite IDs:";
+  *(this->OF.get()) << "    Callsite IDs:";
   for (auto Frame : AllocInfo->CallStack) {
     auto ID = computeStackId(Frame);
     *(this->OF.get()) << " -" << ID;
@@ -846,34 +893,38 @@ void MemProfUsePass::readMemprof(Module &M, Function &F,
                                  const TargetLibraryInfo &TLI, LLVMContext &Ctx,
                                  const DataLayout &DL) {
 
+  // LLVM_DEBUG(dbgs() << "We are in Reading Memprof for Function: " <<
+  // F.getName()
+  //                   << "\n");
   // Previously we used getIRPGOFuncName() here. If F is local linkage,
   // getIRPGOFuncName() returns FuncName with prefix 'FileName;'. But
   // llvm-profdata uses FuncName in dwarf to create GUID which doesn't
-  // contain FileName's prefix. It caused local linkage function can't
+  // contain FileName's prefix. It caused local linkage functioncan't
   // find MemProfRecord. So we use getName() now.
   // 'unique-internal-linkage-names' can make MemProf work better for local
   // linkage function.
   auto FuncName = F.getName();
+  // LLVM_DEBUG(dbgs() << "Reading Memprof in funcame: " << FuncName << "\n");
   auto FuncGUID = Function::getGUID(FuncName);
   std::optional<memprof::MemProfRecord> MemProfRec;
   auto Err = MemProfReader->getMemProfRecord(FuncGUID).moveInto(MemProfRec);
   if (Err) {
     handleAllErrors(std::move(Err), [&](const InstrProfError &IPE) {
       auto Err = IPE.get();
-      bool SkipWarning = false;
-      LLVM_DEBUG(dbgs() << "Error in reading profile for Func " << FuncName
-                        << ": ");
+      bool SkipWarning = true; // TODO: change back to false at some point
+      // LLVM_DEBUG(dbgs() << "Error in reading profile for Func " << FuncName
+      //                   << ": ");
       if (Err == instrprof_error::unknown_function) {
         NumOfMemProfMissing++;
         SkipWarning = !PGOWarnMissing;
-        LLVM_DEBUG(dbgs() << "unknown function");
+        // LLVM_DEBUG(dbgs() << "unknown function\n");
       } else if (Err == instrprof_error::hash_mismatch) {
         SkipWarning =
             NoPGOWarnMismatch ||
             (NoPGOWarnMismatchComdatWeak &&
              (F.hasComdat() ||
               F.getLinkage() == GlobalValue::AvailableExternallyLinkage));
-        LLVM_DEBUG(dbgs() << "hash mismatch (skip=" << SkipWarning << ")");
+        // LLVM_DEBUG(dbgs() << "hash mismatch (skip=" << SkipWarning << ")");
       }
 
       if (SkipWarning)
@@ -895,24 +946,30 @@ void MemProfUsePass::readMemprof(Module &M, Function &F,
   // column numbers disabled, for example.
   bool ProfileHasColumns = false;
 
-  // Build maps of the location hash to all profile data with that leaf location
-  // (allocation info and the callsites).
+  // Build maps of the location hash to all profile data with that leaf
+  // location (allocation info and the callsites).
   std::map<uint64_t, std::set<const AllocationInfo *>> LocHashToAllocInfo;
-  // For the callsites we need to record the index of the associated frame in
-  // the frame array (see comments below where the map entries are added).
+  // For the callsites we need to record the index of the associated frame
+  // in the frame array (see comments below where the map entries are
+  // added).
   std::map<uint64_t, std::set<std::pair<const SmallVector<Frame> *, unsigned>>>
       LocHashToCallSites;
   for (auto &AI : MemProfRec->AllocSites) {
     // Associate the allocation info with the leaf frame. The later matching
-    // code will match any inlined call sequences in the IR with a longer prefix
-    // of call stack frames.
+    // code will match any inlined call sequences in the IR with a longer
+    // prefix of call stack frames.
+
     uint64_t StackId = computeStackId(AI.CallStack[0]);
+    // LLVM_DEBUG(dbgs() << "Inserting " << StackId << "into map for allocinfo:
+    // "
+    //                   << AI.Histogram.Size << "\n");
     LocHashToAllocInfo[StackId].insert(&AI);
     ProfileHasColumns |= AI.CallStack[0].Column;
   }
   for (auto &CS : MemProfRec->CallSites) {
-    // Need to record all frames from leaf up to and including this function,
-    // as any of these may or may not have been inlined at this point.
+    // Need to record all frames from leaf up to and including this
+    // function, as any of these may or may not have been inlined at this
+    // point.
     unsigned Idx = 0;
     for (auto &StackFrame : CS) {
       uint64_t StackId = computeStackId(StackFrame);
@@ -925,15 +982,11 @@ void MemProfUsePass::readMemprof(Module &M, Function &F,
     assert(Idx <= CS.size() && CS[Idx - 1].Function == FuncGUID);
   }
 
-  auto GetOffset = [](const DILocation *DIL) {
-    return (DIL->getLine() - DIL->getScope()->getSubprogram()->getLine()) &
-           0xffff;
-  };
-
   // Now walk the instructions, looking up the associated profile data using
   // dbug locations.
   for (auto &BB : F) {
     for (auto &I : BB) {
+
       if (I.isDebugOrPseudoInst())
         continue;
       // We are only interested in calls (allocation or interior call stack
@@ -941,6 +994,7 @@ void MemProfUsePass::readMemprof(Module &M, Function &F,
       auto *CI = dyn_cast<CallBase>(&I);
       if (!CI)
         continue;
+      // LLVM_DEBUG(dbgs() << "CallBase " << *CI << "\n");
       auto *CalledFunction = CI->getCalledFunction();
       if (CalledFunction && CalledFunction->isIntrinsic())
         continue;
@@ -949,11 +1003,11 @@ void MemProfUsePass::readMemprof(Module &M, Function &F,
       std::vector<uint64_t> InlinedCallStack;
       // Was the leaf location found in one of the profile maps?
       bool LeafFound = false;
-      // If leaf was found in a map, iterators pointing to its location in both
-      // of the maps. It might exist in neither, one, or both (the latter case
-      // can happen because we don't currently have discriminators to
-      // distinguish the case when a single line/col maps to both an allocation
-      // and another callsite).
+      // If leaf was found in a map, iterators pointing to its location in
+      // both of the maps. It might exist in neither, one, or both (the
+      // latter case can happen because we don't currently have
+      // discriminators to distinguish the case when a single line/col maps
+      // to both an allocation and another callsite).
       std::map<uint64_t, std::set<const AllocationInfo *>>::iterator
           AllocInfoIter;
       std::map<uint64_t, std::set<std::pair<const SmallVector<Frame> *,
@@ -968,36 +1022,58 @@ void MemProfUsePass::readMemprof(Module &M, Function &F,
         auto CalleeGUID = Function::getGUID(Name);
         auto StackId = computeStackId(CalleeGUID, GetOffset(DIL),
                                       ProfileHasColumns ? DIL->getColumn() : 0);
+        // LLVM_DEBUG(dbgs() << "LineOffset" << GetOffset(DIL)
+        //                   << "Debuginfo: " << *DIL << "\n");
+        // LLVM_DEBUG(dbgs() << "StackId: " << StackId << "\n");
         // Check if we have found the profile's leaf frame. If yes, collect
-        // the rest of the call's inlined context starting here. If not, see if
-        // we find a match further up the inlined context (in case the profile
-        // was missing debug frames at the leaf).
+        // the rest of the call's inlined context starting here. If not, see
+        // if we find a match further up the inlined context (in case the
+        // profile was missing debug frames at the leaf).
         if (!LeafFound) {
+          // LLVM_DEBUG(dbgs() << "Checking Hashes for " << I << "\n");
+          // LLVM_DEBUG(dbgs() << "Checking Hashes for " << I << "\n");
           AllocInfoIter = LocHashToAllocInfo.find(StackId);
           CallSitesIter = LocHashToCallSites.find(StackId);
+          // if (AllocInfoIter != LocHashToAllocInfo.end()) {
+          //   LLVM_DEBUG(dbgs() << "Found Alloc Info for " << I << "\n");
+          // }
+
+          // if (CallSitesIter != LocHashToCallSites.end()) {
+          //   LLVM_DEBUG(dbgs() << "Found Callsite Info for " << I << "\n");
+          // }
           if (AllocInfoIter != LocHashToAllocInfo.end() ||
               CallSitesIter != LocHashToCallSites.end())
             LeafFound = true;
+          else {
+            // LLVM_DEBUG(dbgs() << "Did not find leaf here!" << I << "\n");
+          }
         }
         if (LeafFound)
           InlinedCallStack.push_back(StackId);
       }
       // If leaf not in either of the maps, skip inst.
-      if (!LeafFound)
+      if (!LeafFound) {
+        // LLVM_DEBUG(dbgs() << "Skipping inst: " << I << "\n");
         continue;
+      }
 
       // First add !memprof metadata from allocation info, if we found the
       // instruction's leaf location in that map, and if the rest of the
       // instruction's locations match the prefix Frame locations on an
       // allocation context with the same leaf.
       if (AllocInfoIter != LocHashToAllocInfo.end()) {
-        // Only consider allocations via new, to reduce unnecessary metadata,
-        // since those are the only allocations that will be targeted initially.
-        if (!isNewLikeFn(CI, &TLI))
+        // Only consider allocations via new, to reduce unnecessary
+        // metadata, since those are the only allocations that will be
+        // targeted initially.
+        if (!isNewLikeFn(CI, &TLI)) {
+
+          // LLVM_DEBUG(dbgs() << "Is not NewLike: " << I << "\n");
           continue;
+        }
         // We may match this instruction's location list to multiple MIB
-        // contexts. Add them to a Trie specialized for trimming the contexts to
-        // the minimal needed to disambiguate contexts with unique behavior.
+        // contexts. Add them to a Trie specialized for trimming the
+        // contexts to the minimal needed to disambiguate contexts with
+        // unique behavior.
         CallStackTrie AllocTrie;
         llvm::SmallVector<FieldAccessesT, 8> AlloctionFieldAccesses;
         llvm::SmallVector<const AllocationInfo *, 8> AllocationInfos;
@@ -1008,37 +1084,86 @@ void MemProfUsePass::readMemprof(Module &M, Function &F,
           if (stackFrameIncludesInlinedCallStack(AllocInfo->CallStack,
                                                  InlinedCallStack))
             addCallStack(AllocTrie, AllocInfo);
+          LLVM_DEBUG(dbgs()
+                     << "We hit this critical instruction: " << I << "\n");
+          // std::optional<StructType *> STyOpt =
+          //     resolveStructType(Ctx, DL, *CI, AllocInfo);
 
-          std::optional<StructType *> STyOpt = resolveStructLayout(Ctx, DL, I);
+          std::optional<AllocTypeTree> ATTOpt =
+              resolveStructTypeName(Ctx, *CI, AllocInfo);
+          if (ATTOpt) {
+            auto ATT = *ATTOpt;
 
-          if (STyOpt) {
-            auto *STy = *STyOpt;
-            const StructLayout *SL = DL.getStructLayout(STy);
-            FieldAccessesT FieldAccesses(SL->getMemberOffsets().size());
-            mergeStructLayoutAndHistogram(FieldAccesses, SL,
-                                          AllocInfo->Histogram);
-            AlloctionFieldAccesses.push_back(FieldAccesses);
-            AllocationInfos.push_back(AllocInfo);
-            if (shouldDumpAccessCounts()) {
-              printYAML(STy, FieldAccesses, AllocInfo);
+            ATT.buildDwarfNames(Ctx);
+            ATT.clearNodesExceptRoot();
+            ATT.resolveLayoutInformation(Ctx, Finder);
+            ATT.mergeWithHistogram(AllocInfo->Histogram);
+
+            LLVM_DEBUG(dbgs() << "Found type: \n" << ATT << "\n");
+            *(this->OF.get()) << ATT;
+            // ATT.buildResolvedTypeTree (Ctx, DL);
+            // LLVM_DEBUG(dbgs() << "After resolving: " << ATT << "\n");
+            // *(this->OF.get()) << "  - ATT_Name: " << ATT << "\n";
+
+          } else {
+            LLVM_DEBUG(dbgs() << "Did not find Type!\n");
+            *(this->OF.get()) << "  - ATT_Name:UNKOWN TYPE HERE: ";
+            *(this->OF.get())
+                << *(CI->getDebugLoc()) << " at instruction " << *CI;
+            if (CI->hasMetadata(LLVMContext::MD_memprof_alloc_type)) {
+              const MDNode *AllocType =
+                  CI->getMetadata(LLVMContext::MD_memprof_alloc_type);
+              assert(AllocType->getNumOperands() == 1);
+              const MDString *AllocTypeMDString =
+                  cast<MDString>(AllocType->getOperand(0));
+              StringRef AllocatorName = AllocTypeMDString->getString();
+              *(this->OF.get()) << " with Memprof AllocType " << AllocatorName;
             }
+
+            if (CI->hasMetadata("heapallocsite")) {
+              auto *MDNode = CI->getMetadata("heapallocsite");
+              *(this->OF.get()) << " heapallocnode:  " << MDNode;
+            }
+
+            *(this->OF.get()) << "\n";
           }
+
+          *(this->OF.get()) << "    Callsite IDs:";
+          for (auto Frame : AllocInfo->CallStack) {
+            auto ID = computeStackId(Frame);
+            *(this->OF.get()) << " -" << ID;
+          }
+          *(this->OF.get()) << "\n";
+
+          // if (STyOpt) {
+          //   auto *STy = *STyOpt;
+          //   const StructLayout *SL = DL.getStructLayout(STy);
+          //   FieldAccessesT FieldAccesses(SL->getMemberOffsets().size());
+          //   mergeStructLayoutAndHistogram(FieldAccesses, SL,
+          //                                 AllocInfo->Histogram);
+          //   AlloctionFieldAccesses.push_back (FieldAccesses);
+          //   AllocationInfos.push_back(AllocInfo);
+          //   if (shouldDumpAccessCounts()) {
+          //     printYAML(STy, FieldAccesses, AllocInfo);
+          //   }
+          // }
         }
         buildAndAttachHistogramMetadata(CI, AlloctionFieldAccesses,
                                         AllocationInfos);
         // We might not have matched any to the full inlined call stack.
-        // But if we did, create and attach metadata, or a function attribute if
-        // all contexts have identical profiled behavior.
+        // But if we did, create and attach metadata, or a function
+        // attribute if all contexts have identical profiled behavior.
         if (!AllocTrie.empty()) {
           // MemprofMDAttached will be false if a function attribute was
           // attached.
           bool MemprofMDAttached = AllocTrie.buildAndAttachMIBMetadata(CI);
           assert(MemprofMDAttached == I.hasMetadata(LLVMContext::MD_memprof));
           if (MemprofMDAttached) {
-            // Add callsite metadata for the instruction's location list so that
-            // it simpler later on to identify which part of the MIB contexts
-            // are from this particular instruction (including during inlining,
-            // when the callsite metdata will be updated appropriately).
+            // Add callsite metadata for the instruction's location list so
+            // that it simpler later on to identify which part of the MIB
+            // contexts are from this particular instruction (including
+            // during inlining, when the callsite metdata will be updated
+            // appropriately).
             // FIXME: can this be changed to strip out the matching stack
             // context ids from the MIB contexts and not add any callsite
             // metadata here to save space?
@@ -1048,9 +1173,13 @@ void MemProfUsePass::readMemprof(Module &M, Function &F,
         continue;
       }
 
-      // Otherwise, add callsite metadata. If we reach here then we found the
-      // instruction's leaf location in the callsites map and not the allocation
-      // map.
+      // LLVM_DEBUG(dbgs() << "Reached the pointe where we add callsite, but
+      // we
+      // "
+      //                      "didn't have AllocInfo\n");
+      // Otherwise, add callsite metadata. If we reach here then we found
+      // the instruction's leaf location in the callsites map and not the
+      // allocation map.
       assert(CallSitesIter != LocHashToCallSites.end());
       for (auto CallStackIdx : CallSitesIter->second) {
         // If we found and thus matched all frames on the call, create and
@@ -1058,8 +1187,8 @@ void MemProfUsePass::readMemprof(Module &M, Function &F,
         if (stackFrameIncludesInlinedCallStack(
                 *CallStackIdx.first, InlinedCallStack, CallStackIdx.second)) {
           addCallsiteMetadata(I, InlinedCallStack, Ctx);
-          // Only need to find one with a matching call stack and add a single
-          // callsite metadata.
+          // Only need to find one with a matching call stack and add a
+          // single callsite metadata.
           break;
         }
       }
@@ -1070,19 +1199,26 @@ void MemProfUsePass::readMemprof(Module &M, Function &F,
 MemProfUsePass::MemProfUsePass(MemprofUsePassOptions MemProfOpt,
                                IntrusiveRefCntPtr<vfs::FileSystem> FS)
     : MemoryProfileFileName(MemProfOpt.ProfileFileName), FS(FS),
-      dumpYAML(MemProfOpt.dumpYAML) {
+      dumpYAML(true) {
+  // dumpYAML(MemProfOpt.dumpYAML) {
   if (!FS)
     this->FS = vfs::getRealFileSystem();
-  int FD;
 
+  int FD;
   if (dumpYAML && MemProfOpt.AccessCountFileName.empty()) {
     this->AccessCountFileName =
-        (Twine(MemProfOpt.ProfileFileName) + Twine(".yaml")).str();
+        (Twine(MemProfOpt.ProfileFileName) + Twine(".") +
+         Twine((uint64_t)this) + Twine(".yaml"))
+            .str();
+
   } else {
     this->AccessCountFileName = MemProfOpt.AccessCountFileName;
   }
 
   if (shouldDumpAccessCounts()) {
+
+    LLVM_DEBUG(dbgs() << "Opening file for dump " << this->AccessCountFileName
+                      << "\n");
     if (std::error_code EC =
             sys::fs::openFileForWrite(AccessCountFileName, FD)) {
       auto Err = errorCodeToError(EC);
@@ -1096,22 +1232,50 @@ MemProfUsePass::MemProfUsePass(MemprofUsePassOptions MemProfOpt,
 MemProfUsePass::MemProfUsePass(std::string MemoryProfileFilename,
                                IntrusiveRefCntPtr<vfs::FileSystem> FS)
     : MemoryProfileFileName(MemoryProfileFilename), AccessCountFileName(""),
-      dumpYAML(false), FS(FS) {
+      dumpYAML(true), FS(FS) {
   if (!FS)
     this->FS = vfs::getRealFileSystem();
+
+  if (dumpYAML) {
+    this->AccessCountFileName = (Twine(MemoryProfileFilename) + Twine(".") +
+                                 Twine((uint64_t)this) + Twine(".yaml"))
+                                    .str();
+  } else {
+    this->AccessCountFileName = "";
+  }
+  // TODO: Clean this up
+  int FD;
+  if (shouldDumpAccessCounts()) {
+
+    LLVM_DEBUG(dbgs() << "Opening file for dump " << this->AccessCountFileName
+                      << "\n");
+    if (std::error_code EC =
+            sys::fs::openFileForWrite(AccessCountFileName, FD)) {
+      auto Err = errorCodeToError(EC);
+      errs() << Err;
+      return;
+    }
+    this->OF = std::make_unique<llvm::raw_fd_ostream>(FD, true);
+  }
 }
+
+// MemProfUsePass::MemProfUsePass(const MemProfUsePass &MemprofUsePass)
+//     : MemoryProfileFileName(MemprofUsePass.MemoryProfileFileName),
+//       AccessCountFileName(MemprofUsePass.AccessCountFileName), FS(FS),
+//       OF(std::move(OF)) {}
 
 bool MemProfUsePass::shouldDumpAccessCounts() {
   return dumpYAML || !AccessCountFileName.empty();
 }
 
 PreservedAnalyses MemProfUsePass::run(Module &M, ModuleAnalysisManager &AM) {
-  LLVM_DEBUG(dbgs() << "Read in memory profile:");
+  Finder.processModule(M);
   const DataLayout &DL =
       M.getDataLayout(); // we can get DL here for future StructLayout
   auto &Ctx = M.getContext();
   auto ReaderOrErr = IndexedInstrProfReader::create(MemoryProfileFileName, *FS);
   if (Error E = ReaderOrErr.takeError()) {
+    errs() << "Erro in reading memprofile..\n";
     handleAllErrors(std::move(E), [&](const ErrorInfoBase &EI) {
       Ctx.diagnose(
           DiagnosticInfoPGOProfile(MemoryProfileFileName.data(), EI.message()));
@@ -1135,10 +1299,18 @@ PreservedAnalyses MemProfUsePass::run(Module &M, ModuleAnalysisManager &AM) {
 
   auto &FAM = AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
   // Here we can get AliasAnalysis forrom FAM for future.
+
+  for (auto &F : M) {
+    auto FuncName = F.getName();
+    auto FuncGUID = Function::getGUID(FuncName);
+    IdToFunction.insert({FuncGUID, &F});
+  }
+
   for (auto &F : M) {
     if (F.isDeclaration())
       continue;
     const TargetLibraryInfo &TLI = FAM.getResult<TargetLibraryAnalysis>(F);
+
     readMemprof(M, F, MemProfReader.get(), TLI, Ctx, DL);
   }
 

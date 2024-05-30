@@ -1,4 +1,4 @@
---- !mach-o
+  --- !mach-o
 FileHeader:
   magic:           0xFEEDFACF
   cputype:         0x100000C

@@ -128,7 +128,7 @@ static void serializeV0(const IndexedMemProfRecord &Record,
     for (uint64_t I = 0; I < Histogram.Size; I++) {
       LE.write<uint64_t>(Histogram.Ptr[I]);
     }
-    free(Histogram.Ptr);
+    // free(Histogram.Ptr); //TODO: FIx this, we have double free here
   }
 }
 

@@ -1131,17 +1131,15 @@ DISubprogram *DISubprogram::getImpl(
   assert(isCanonical(Name) && "Expected canonical MDString");
   assert(isCanonical(LinkageName) && "Expected canonical MDString");
   assert(isCanonical(TargetFuncName) && "Expected canonical MDString");
-  DEFINE_GETIMPL_LOOKUP(DISubprogram,
-                        (Scope, Name, LinkageName, File, Line, Type, ScopeLine,
-                         ContainingType, VirtualIndex, ThisAdjustment, Flags,
-                         SPFlags, Unit, TemplateParams, Declaration,
-                         RetainedNodes, ThrownTypes, Annotations,
-                         TargetFuncName));
+  DEFINE_GETIMPL_LOOKUP(
+      DISubprogram,
+      (Scope, Name, LinkageName, File, Line, Type, ScopeLine, ContainingType,
+       VirtualIndex, ThisAdjustment, Flags, SPFlags, Unit, TemplateParams,
+       Declaration, RetainedNodes, ThrownTypes, Annotations, TargetFuncName));
   SmallVector<Metadata *, 13> Ops = {
-      File,           Scope,          Name,        LinkageName,
-      Type,           Unit,           Declaration, RetainedNodes,
-      ContainingType, TemplateParams, ThrownTypes, Annotations,
-      TargetFuncName};
+      File,        Scope,       Name,          LinkageName,    Type,
+      Unit,        Declaration, RetainedNodes, ContainingType, TemplateParams,
+      ThrownTypes, Annotations, TargetFuncName};
   if (!TargetFuncName) {
     Ops.pop_back();
     if (!Annotations) {
@@ -1684,7 +1682,7 @@ void DIExpression::appendOffset(SmallVectorImpl<uint64_t> &Ops,
     Ops.push_back(dwarf::DW_OP_constu);
     // Avoid UB when encountering LLONG_MIN, because in 2's complement
     // abs(LLONG_MIN) is LLONG_MAX+1.
-    uint64_t AbsMinusOne = -(Offset+1);
+    uint64_t AbsMinusOne = -(Offset + 1);
     Ops.push_back(AbsMinusOne + 1);
     Ops.push_back(dwarf::DW_OP_minus);
   }

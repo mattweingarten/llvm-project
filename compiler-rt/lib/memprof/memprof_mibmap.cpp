@@ -30,9 +30,14 @@ void InsertOrMerge(const uptr Id, const MemInfoBlock &Block, MIBMapTy &Map) {
   } else {
     LockedMemInfoBlock *lmib = *h;
     SpinMutexLock lock(&lmib->mutex);
+    uintptr_t ShorterHistogram;
+    if (Block.AccessHistogramSize > lmib->mib.AccessHistogramSize)
+      ShorterHistogram = lmib->mib.AccessHistogram;
+    else
+      ShorterHistogram = Block.AccessHistogram;
     lmib->mib.Merge(Block);
-    //Assuming the merged block passed as a parameter is destroyed
-    InternalFree((void*)Block.AccessHistogram);
+    // Free Histogram that is shorter before merge
+    InternalFree((void *)ShorterHistogram);
   }
 }
 

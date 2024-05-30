@@ -72,12 +72,12 @@
 // For an access to B.a.s, we attach !5 (a path tag node) to the load/store
 // instruction. The base type is !4 (struct B), the access type is !2 (scalar
 // type short) and the offset is 4.
-//
+//     // Struct type node
+// !4 = !{!"B", !2, i64 0, !3, i
 // !0 = !{!"Simple C/C++ TBAA"}
 // !1 = !{!"omnipotent char", !0} // Scalar type node
 // !2 = !{!"short", !1}           // Scalar type node
-// !3 = !{!"A", !2, i64 0}        // Struct type node
-// !4 = !{!"B", !2, i64 0, !3, i64 4}
+// !3 = !{!"A", !2, i64 0}   64 4}
 //                                                           // Struct type node
 // !5 = !{!4, !2, i64 4}          // Path tag node
 //
@@ -145,8 +145,7 @@ static bool isNewFormatTypeNode(const MDNode *N) {
 /// This is a simple wrapper around an MDNode which provides a higher-level
 /// interface by hiding the details of how alias analysis information is encoded
 /// in its operands.
-template<typename MDNodeTy>
-class TBAANodeImpl {
+template <typename MDNodeTy> class TBAANodeImpl {
   MDNodeTy *Node = nullptr;
 
 public:
@@ -197,8 +196,7 @@ using MutableTBAANode = TBAANodeImpl<MDNode>;
 /// This is a simple wrapper around an MDNode which provides a
 /// higher-level interface by hiding the details of how alias analysis
 /// information is encoded in its operands.
-template<typename MDNodeTy>
-class TBAAStructTagNodeImpl {
+template <typename MDNodeTy> class TBAAStructTagNodeImpl {
   /// This node should be created with createTBAAAccessTag().
   MDNodeTy *Node;
 
@@ -281,9 +279,7 @@ public:
   }
 
   /// getId - Return type identifier.
-  Metadata *getId() const {
-    return Node->getOperand(isNewFormat() ? 2 : 0);
-  }
+  Metadata *getId() const { return Node->getOperand(isNewFormat() ? 2 : 0); }
 
   unsigned getNumFields() const {
     unsigned FirstFieldOpNo = isNewFormat() ? 3 : 1;
@@ -464,7 +460,7 @@ bool MDNode::isTBAAVtableAccess() const {
   // For struct-path aware TBAA, we use the access type of the tag.
   TBAAStructTagNode Tag(this);
   TBAAStructTypeNode AccessType(Tag.getAccessType());
-  if(auto *Id = dyn_cast<MDString>(AccessType.getId()))
+  if (auto *Id = dyn_cast<MDString>(AccessType.getId()))
     if (Id->getString() == "vtable pointer")
       return true;
   return false;
@@ -476,7 +472,7 @@ static bool matchAccessTags(const MDNode *A, const MDNode *B,
 MDNode *MDNode::getMostGenericTBAA(MDNode *A, MDNode *B) {
   const MDNode *GenericTag;
   matchAccessTags(A, B, &GenericTag);
-  return const_cast<MDNode*>(GenericTag);
+  return const_cast<MDNode *>(GenericTag);
 }
 
 static const MDNode *getLeastCommonType(const MDNode *A, const MDNode *B) {
@@ -550,15 +546,13 @@ static const MDNode *createAccessTag(const MDNode *AccessType) {
     uint64_t AccessSize = UINT64_MAX;
     auto *SizeNode =
         ConstantAsMetadata::get(ConstantInt::get(Int64, AccessSize));
-    Metadata *Ops[] = {const_cast<MDNode*>(AccessType),
-                       const_cast<MDNode*>(AccessType),
-                       OffsetNode, SizeNode};
+    Metadata *Ops[] = {const_cast<MDNode *>(AccessType),
+                       const_cast<MDNode *>(AccessType), OffsetNode, SizeNode};
     return MDNode::get(AccessType->getContext(), Ops);
   }
 
-  Metadata *Ops[] = {const_cast<MDNode*>(AccessType),
-                     const_cast<MDNode*>(AccessType),
-                     OffsetNode};
+  Metadata *Ops[] = {const_cast<MDNode *>(AccessType),
+                     const_cast<MDNode *>(AccessType), OffsetNode};
   return MDNode::get(AccessType->getContext(), Ops);
 }
 
@@ -614,8 +608,8 @@ static bool mayBeAccessToSubobjectOf(TBAAStructTagNode BaseTag,
     if (BaseType.getNode() == SubobjectTag.getBaseType()) {
       bool SameMemberAccess = OffsetInBase == SubobjectTag.getOffset();
       if (GenericTag) {
-        *GenericTag = SameMemberAccess ? SubobjectTag.getNode() :
-                                         createAccessTag(CommonType);
+        *GenericTag = SameMemberAccess ? SubobjectTag.getNode()
+                                       : createAccessTag(CommonType);
       }
       MayAlias = SameMemberAccess;
       return true;
@@ -671,8 +665,8 @@ static bool matchAccessTags(const MDNode *A, const MDNode *B,
   assert(isStructPathTBAA(B) && "Access B is not struct-path aware!");
 
   TBAAStructTagNode TagA(A), TagB(B);
-  const MDNode *CommonType = getLeastCommonType(TagA.getAccessType(),
-                                                TagB.getAccessType());
+  const MDNode *CommonType =
+      getLeastCommonType(TagA.getAccessType(), TagB.getAccessType());
 
   // If the final access types have different roots, they're part of different
   // potentially unrelated type systems, so we must be conservative.

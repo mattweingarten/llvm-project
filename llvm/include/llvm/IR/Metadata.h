@@ -145,7 +145,7 @@ DEFINE_ISA_CONVERSION_FUNCTIONS(Metadata, LLVMMetadataRef)
 
 // Specialized opaque metadata conversions.
 inline Metadata **unwrap(LLVMMetadataRef *MDs) {
-  return reinterpret_cast<Metadata**>(MDs);
+  return reinterpret_cast<Metadata **>(MDs);
 }
 
 #define HANDLE_METADATA(CLASS) class CLASS;
@@ -403,8 +403,8 @@ public:
   ///
   /// Replace all uses of this with \c MD, which is allowed to be null.
   void replaceAllUsesWith(Metadata *MD);
-   /// Replace all uses of the constant with Undef in debug info metadata
-  static void SalvageDebugInfo(const Constant &C); 
+  /// Replace all uses of the constant with Undef in debug info metadata
+  static void SalvageDebugInfo(const Constant &C);
   /// Returns the list of all DIArgList users of this.
   SmallVector<Metadata *> getAllArgListUsers();
   /// Returns the list of all DbgVariableRecord users of this.
@@ -545,8 +545,7 @@ public:
 class LocalAsMetadata : public ValueAsMetadata {
   friend class ValueAsMetadata;
 
-  LocalAsMetadata(Value *Local)
-      : ValueAsMetadata(LocalAsMetadataKind, Local) {
+  LocalAsMetadata(Value *Local) : ValueAsMetadata(LocalAsMetadataKind, Local) {
     assert(!isa<Constant>(Local) && "Expected local value");
   }
 
@@ -855,16 +854,15 @@ struct AAMDNodes {
 };
 
 // Specialize DenseMapInfo for AAMDNodes.
-template<>
-struct DenseMapInfo<AAMDNodes> {
+template <> struct DenseMapInfo<AAMDNodes> {
   static inline AAMDNodes getEmptyKey() {
-    return AAMDNodes(DenseMapInfo<MDNode *>::getEmptyKey(),
-                     nullptr, nullptr, nullptr);
+    return AAMDNodes(DenseMapInfo<MDNode *>::getEmptyKey(), nullptr, nullptr,
+                     nullptr);
   }
 
   static inline AAMDNodes getTombstoneKey() {
-    return AAMDNodes(DenseMapInfo<MDNode *>::getTombstoneKey(),
-                     nullptr, nullptr, nullptr);
+    return AAMDNodes(DenseMapInfo<MDNode *>::getTombstoneKey(), nullptr,
+                     nullptr, nullptr);
   }
 
   static unsigned getHashValue(const AAMDNodes &Val) {
@@ -1151,8 +1149,8 @@ class MDNode : public Metadata {
     MutableArrayRef<MDOperand> operands() {
       if (IsLarge)
         return getLarge();
-      return MutableArrayRef(
-          reinterpret_cast<MDOperand *>(this) - SmallSize, SmallNumOps);
+      return MutableArrayRef(reinterpret_cast<MDOperand *>(this) - SmallSize,
+                             SmallNumOps);
     }
 
     ArrayRef<MDOperand> operands() const {
@@ -1815,14 +1813,16 @@ public:
   using op_iterator = op_iterator_impl<MDNode *>;
 
   op_iterator op_begin() { return op_iterator(this, 0); }
-  op_iterator op_end()   { return op_iterator(this, getNumOperands()); }
+  op_iterator op_end() { return op_iterator(this, getNumOperands()); }
 
   using const_op_iterator = op_iterator_impl<const MDNode *>;
 
   const_op_iterator op_begin() const { return const_op_iterator(this, 0); }
-  const_op_iterator op_end()   const { return const_op_iterator(this, getNumOperands()); }
+  const_op_iterator op_end() const {
+    return const_op_iterator(this, getNumOperands());
+  }
 
-  inline iterator_range<op_iterator>  operands() {
+  inline iterator_range<op_iterator> operands() {
     return make_range(op_begin(), op_end());
   }
   inline iterator_range<const_op_iterator> operands() const {

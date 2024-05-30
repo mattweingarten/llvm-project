@@ -16,6 +16,7 @@ set(MEMPROF_SOURCES
   memprof_stack.cpp
   memprof_stats.cpp
   memprof_thread.cpp
+  memprof_type_analyzer_tool.cpp
   )
 
 set(MEMPROF_CXX_SOURCES
@@ -43,6 +44,7 @@ SET(MEMPROF_HEADERS
   memprof_stack.h
   memprof_stats.h
   memprof_thread.h
+  memprof_type_analyzer_tool.h
   )
 
 include_directories(..)

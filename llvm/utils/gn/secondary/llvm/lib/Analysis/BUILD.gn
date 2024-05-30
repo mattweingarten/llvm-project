@@ -85,6 +85,7 @@ static_library("Analysis") {
     "MemoryDependenceAnalysis.cpp",
     "MemoryLocation.cpp",
     "MemoryProfileInfo.cpp",
+    "MemprofTypeAnalysis.cpp",
     "MemorySSA.cpp",
     "MemorySSAUpdater.cpp",
     "ModelUnderTrainingRunner.cpp",

@@ -366,7 +366,7 @@ public:
     assert(isSimple());
     return Addr.isValid() ? Addr.emitRawPointer(CGF) : nullptr;
   }
-
+ 
   Address getAddress(CodeGenFunction &CGF) const {
     // FIXME: remove parameter.
     return Addr;

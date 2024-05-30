@@ -146,10 +146,10 @@ public:
 
   /// Registers all available CGSCC analysis passes.
   ///
-  /// This is an interface that can be used to populate a \c CGSCCAnalysisManager
-  /// with all registered CGSCC analyses. Callers can still manually register any
-  /// additional analyses. Callers can also pre-register analyses and this will
-  /// not override those.
+  /// This is an interface that can be used to populate a \c
+  /// CGSCCAnalysisManager with all registered CGSCC analyses. Callers can still
+  /// manually register any additional analyses. Callers can also pre-register
+  /// analyses and this will not override those.
   void registerCGSCCAnalyses(CGSCCAnalysisManager &CGAM);
 
   /// Registers all available function analysis passes.
@@ -304,6 +304,7 @@ public:
   /// This also adds target-specific alias analyses registered via
   /// TargetMachine::registerDefaultAliasAnalyses().
   AAManager buildDefaultAAPipeline();
+  AAManager buildTBAAPipeline();
 
   /// Parse a textual pass pipeline description into a \c
   /// ModulePassManager.
@@ -651,9 +652,9 @@ public:
   /// Expected<> template class.
   ///
   template <typename ParametersParseCallableT>
-  static auto parsePassParameters(ParametersParseCallableT &&Parser,
-                                  StringRef Name, StringRef PassName)
-      -> decltype(Parser(StringRef{})) {
+  static auto
+  parsePassParameters(ParametersParseCallableT &&Parser, StringRef Name,
+                      StringRef PassName) -> decltype(Parser(StringRef{})) {
     using ParametersT = typename decltype(Parser(StringRef{}))::value_type;
 
     StringRef Params = Name;
@@ -926,6 +927,6 @@ public:
     return Result();
   }
 };
-}
+} // namespace llvm
 
 #endif

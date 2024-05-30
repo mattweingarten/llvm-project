@@ -1728,27 +1728,27 @@ private:
                    ScopeLine, ContainingType, VirtualIndex, ThisAdjustment,
                    Flags, SPFlags, Unit, TemplateParams.get(), Declaration,
                    RetainedNodes.get(), ThrownTypes.get(), Annotations.get(),
-                   getCanonicalMDString(Context, TargetFuncName),
-                   Storage, ShouldCreate);
+                   getCanonicalMDString(Context, TargetFuncName), Storage,
+                   ShouldCreate);
   }
-  static DISubprogram *
-  getImpl(LLVMContext &Context, Metadata *Scope, MDString *Name,
-          MDString *LinkageName, Metadata *File, unsigned Line, Metadata *Type,
-          unsigned ScopeLine, Metadata *ContainingType, unsigned VirtualIndex,
-          int ThisAdjustment, DIFlags Flags, DISPFlags SPFlags, Metadata *Unit,
-          Metadata *TemplateParams, Metadata *Declaration,
-          Metadata *RetainedNodes, Metadata *ThrownTypes, Metadata *Annotations,
-          MDString *TargetFuncName, StorageType Storage,
-          bool ShouldCreate = true);
+  static DISubprogram *getImpl(LLVMContext &Context, Metadata *Scope,
+                               MDString *Name, MDString *LinkageName,
+                               Metadata *File, unsigned Line, Metadata *Type,
+                               unsigned ScopeLine, Metadata *ContainingType,
+                               unsigned VirtualIndex, int ThisAdjustment,
+                               DIFlags Flags, DISPFlags SPFlags, Metadata *Unit,
+                               Metadata *TemplateParams, Metadata *Declaration,
+                               Metadata *RetainedNodes, Metadata *ThrownTypes,
+                               Metadata *Annotations, MDString *TargetFuncName,
+                               StorageType Storage, bool ShouldCreate = true);
 
   TempDISubprogram cloneImpl() const {
-    return getTemporary(getContext(), getScope(), getName(), getLinkageName(),
-                        getFile(), getLine(), getType(), getScopeLine(),
-                        getContainingType(), getVirtualIndex(),
-                        getThisAdjustment(), getFlags(), getSPFlags(),
-                        getUnit(), getTemplateParams(), getDeclaration(),
-                        getRetainedNodes(), getThrownTypes(), getAnnotations(),
-                        getTargetFuncName());
+    return getTemporary(
+        getContext(), getScope(), getName(), getLinkageName(), getFile(),
+        getLine(), getType(), getScopeLine(), getContainingType(),
+        getVirtualIndex(), getThisAdjustment(), getFlags(), getSPFlags(),
+        getUnit(), getTemplateParams(), getDeclaration(), getRetainedNodes(),
+        getThrownTypes(), getAnnotations(), getTargetFuncName());
   }
 
 public:
@@ -1921,9 +1921,7 @@ public:
   void replaceRawLinkageName(MDString *LinkageName) {
     replaceOperandWith(3, LinkageName);
   }
-  void replaceRetainedNodes(DINodeArray N) {
-    replaceOperandWith(7, N.get());
-  }
+  void replaceRetainedNodes(DINodeArray N) { replaceOperandWith(7, N.get()); }
 
   /// Check if this subprogram describes the given function.
   ///

@@ -13,6 +13,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Analysis/MemprofTypeAnalysis.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/Object/Binary.h"
 #include "llvm/ProfileData/InstrProfCorrelator.h"
@@ -247,8 +248,7 @@ cl::opt<uint64_t> TemporalProfMaxTraceLength(
     cl::desc("The maximum length of a single temporal profile trace "
              "(default: 10000)"));
 cl::opt<std::string> FuncNameNegativeFilter(
-    "no-function", cl::init(""),
-    cl::sub(MergeSubcommand),
+    "no-function", cl::init(""), cl::sub(MergeSubcommand),
     cl::desc("Exclude functions matching the filter from the output."));
 
 cl::opt<FailureMode>
@@ -579,7 +579,7 @@ public:
     return New.empty() ? Name : FunctionId(New);
   }
 };
-}
+} // namespace
 
 struct WeightedFile {
   std::string Filename;
@@ -798,13 +798,11 @@ getFuncName(const StringMap<InstrProfWriter::ProfilingData>::value_type &Val) {
   return Val.first();
 }
 
-static std::string
-getFuncName(const SampleProfileMap::value_type &Val) {
+static std::string getFuncName(const SampleProfileMap::value_type &Val) {
   return Val.second.getContext().toString();
 }
 
-template <typename T>
-static void filterFunctions(T &ProfileMap) {
+template <typename T> static void filterFunctions(T &ProfileMap) {
   bool hasFilter = !FuncNameFilter.empty();
   bool hasNegativeFilter = !FuncNameNegativeFilter.empty();
   if (!hasFilter && !hasNegativeFilter)
@@ -1380,8 +1378,8 @@ remapSamples(const sampleprof::FunctionSamples &Samples,
                           BodySample.second.getSamples());
     for (const auto &Target : BodySample.second.getCallTargets()) {
       Result.addCalledTargetSamples(BodySample.first.LineOffset,
-                                    MaskedDiscriminator,
-                                    Remapper(Target.first), Target.second);
+                                    MaskedDiscriminator, Remapper(Target.first),
+                                    Target.second);
     }
   }
   for (const auto &CallsiteSamples : Samples.getCallsiteSamples()) {
@@ -1397,12 +1395,8 @@ remapSamples(const sampleprof::FunctionSamples &Samples,
 }
 
 static sampleprof::SampleProfileFormat FormatMap[] = {
-    sampleprof::SPF_None,
-    sampleprof::SPF_Text,
-    sampleprof::SPF_None,
-    sampleprof::SPF_Ext_Binary,
-    sampleprof::SPF_GCC,
-    sampleprof::SPF_Binary};
+    sampleprof::SPF_None,       sampleprof::SPF_Text, sampleprof::SPF_None,
+    sampleprof::SPF_Ext_Binary, sampleprof::SPF_GCC,  sampleprof::SPF_Binary};
 
 static std::unique_ptr<MemoryBuffer>
 getInputFileBuf(const StringRef &InputFile) {
@@ -3234,7 +3228,8 @@ static int show_main(int argc, const char *argv[]) {
     exitWithErrorCode(EC, OutputFilename);
 
   if (ShowAllFunctions && !FuncNameFilter.empty())
-    WithColor::warning() << "-function argument ignored: showing all functions\n";
+    WithColor::warning()
+        << "-function argument ignored: showing all functions\n";
 
   if (!DebugInfoFilename.empty())
     return showDebugInfoCorrelation(DebugInfoFilename, SFormat, OS);

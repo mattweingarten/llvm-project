@@ -96,6 +96,7 @@ add_llvm_component_library(LLVMAnalysis
   MemoryDependenceAnalysis.cpp
   MemoryLocation.cpp
   MemoryProfileInfo.cpp
+  MemprofTypeAnalysis.cpp
   MemorySSA.cpp
   MemorySSAUpdater.cpp
   ModelUnderTrainingRunner.cpp
