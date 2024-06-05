@@ -935,7 +935,8 @@ DICompileUnit::DICompileUnit(LLVMContext &C, StorageType Storage,
       DWOId(DWOId), EmissionKind(EmissionKind), NameTableKind(NameTableKind),
       IsOptimized(IsOptimized), SplitDebugInlining(SplitDebugInlining),
       DebugInfoForProfiling(DebugInfoForProfiling),
-      RangesBaseAddress(RangesBaseAddress) {
+      RangesBaseAddress(RangesBaseAddress) { 
+        errs() << "Created compile unit for " <<  DWOId << "\n";
   assert(Storage != Uniqued);
 }
 

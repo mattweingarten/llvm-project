@@ -141,6 +141,7 @@ protected:
       : MDNode(C, ID, Storage, Ops1, Ops2) {
     assert(Tag < 1u << 16);
     SubclassData16 = Tag;
+    // errs() << "Making DI: " << ID << "\n";
   }
   ~DINode() = default;
 
@@ -1448,11 +1449,11 @@ public:
   static const char *emissionKindString(DebugEmissionKind EK);
   static std::optional<DebugNameTableKind> getNameTableKind(StringRef Str);
   static const char *nameTableKindString(DebugNameTableKind PK);
+  uint64_t DWOId;
 
 private:
   unsigned SourceLanguage;
   unsigned RuntimeVersion;
-  uint64_t DWOId;
   unsigned EmissionKind;
   unsigned NameTableKind;
   bool IsOptimized;

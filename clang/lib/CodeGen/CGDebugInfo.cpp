@@ -45,6 +45,7 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Metadata.h"
+#include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/MD5.h"
@@ -52,6 +53,12 @@
 #include "llvm/Support/SHA1.h"
 #include "llvm/Support/SHA256.h"
 #include "llvm/Support/TimeProfiler.h"
+#include "llvm/Support/Debug.h"
+
+
+#define DEBUG_TYPE "Codegen"
+
+
 #include <optional>
 using namespace clang;
 using namespace clang::CodeGen;
@@ -2479,14 +2486,42 @@ void CGDebugInfo::addHeapAllocSiteMetadata(llvm::CallBase *CI,
   if (CGM.getCodeGenOpts().getDebugInfo() <=
       llvm::codegenoptions::DebugLineTablesOnly)
     return;
-  llvm::MDNode *node;
-  if (AllocatedTy->isVoidType())
-    node = llvm::MDNode::get(CGM.getLLVMContext(), std::nullopt);
-  else
-    node = getOrCreateType(AllocatedTy, getOrCreateFile(Loc));
+  SmallVector<llvm::Metadata *> nodes;
+  if (AllocatedTy->isVoidType()){
+
+    // node = llvm::MDNode::get(CGM.getLLVMContext(), std::nullopt);
+    nodes.push_back(llvm::MDNode::get(CGM.getLLVMContext(), std::nullopt));
+  }
+  else {
+    
+    // node = getOrCreateType(AllocatedTy, getOrCreateFile(Loc));
+   nodes.push_back(getOrCreateType(AllocatedTy, getOrCreateFile(Loc)));
+  }
+
+    // Create GenericDINode*
+
+
+    nodes.push_back(llvm::GenericDINode::get(CGM.getLLVMContext(), llvm::dwarf::DW_TAG_structure_type, "Header", nullptr));
+    // llvm::GenericDINode* gen =llvm::GenericDINode::get(CGM.getLLVMContext(), llvm::dwarf::DW_TAG_structure_type, "Header", node);
+    // Is this generic Node included in the LLVM IR? --> yes
+
+    // Make sure this show up in dwarf dump
+
+    llvm::dwarf::TypeKind Encoding = llvm::dwarf::DW_ATE_signed;
+    nodes.push_back(DBuilder.createUnspecifiedType("TestType"));
+    nodes.push_back(DBuilder.createBasicType("TestType2", 8, 8));
+    llvm::MDNode *node = llvm::MDNode::get(CGM.getLLVMContext(), nodes);
+
+
+    
+
+    // LLVM_DEBUG(llvm::dbgs() << "Test" << "\n");
+
+
+    // If it is included into the LLVM IR, is it lowered to dwarf debug info?
 
   CI->setMetadata("heapallocsite", node);
-}
+} 
 
 void CGDebugInfo::completeType(const EnumDecl *ED) {
   if (DebugKind <= llvm::codegenoptions::DebugLineTablesOnly)

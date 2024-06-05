@@ -83,7 +83,10 @@ DwarfUnit::DwarfUnit(dwarf::Tag UnitTag, const DICompileUnit *Node,
                      AsmPrinter *A, DwarfDebug *DW, DwarfFile *DWU,
                      unsigned UniqueID)
     : DIEUnit(UnitTag), UniqueID(UniqueID), CUNode(Node), Asm(A), DD(DW),
-      DU(DWU) {}
+      DU(DWU) {
+
+        errs() << "Lowering DICompileUnit for " << Node-> DWOId << "\n";
+      }
 
 DwarfTypeUnit::DwarfTypeUnit(DwarfCompileUnit &CU, AsmPrinter *A,
                              DwarfDebug *DW, DwarfFile *DWU, unsigned UniqueID,
