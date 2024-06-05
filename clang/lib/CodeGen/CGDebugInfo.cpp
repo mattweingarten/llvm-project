@@ -2498,6 +2498,22 @@ void CGDebugInfo::addHeapAllocSiteMetadata(llvm::CallBase *CI,
    nodes.push_back(getOrCreateType(AllocatedTy, getOrCreateFile(Loc)));
   }
 
+  auto* F = CI->getFunction();
+
+  LLVM_DEBUG(dbgs() << "Got function: \n" );
+  
+  // F->getDecl
+
+      // llvm::DILocation::get(CGM.getLLVMContext(), getLineNumber(Loc
+      
+  // Type* Ty = CI->getType();
+
+  // LLVM_DEBUG(ty->dump());
+
+  // ObjCInterfaceDecl *ID = Ty->getDecl();
+  // llvm::DIFile *DefUnit = getOrCreateFile(ID->getLocation());
+  // DBuilder.createStructType()
+
     // Create GenericDINode*
 
 
