@@ -43,6 +43,14 @@ DIBuilder::DIBuilder(Module &m, bool AllowUnresolvedNodes, DICompileUnit *CU)
   }
 }
 
+void DIBuilder::test(MDNode* MetadataNode) {
+  llvm::errs() << "Hello from test\n";
+
+  AllRetainTypes.emplace_back(MetadataNode);
+  llvm::errs() << "Pushed new type to retained types\n";
+
+}
+
 void DIBuilder::trackIfUnresolved(MDNode *N) {
   if (!N)
     return;
@@ -354,6 +362,12 @@ DIDerivedType *DIBuilder::createTypedef(DIType *Ty, StringRef Name,
                             LineNo, getNonCompileUnitScope(Context), Ty, 0,
                             AlignInBits, 0, std::nullopt, std::nullopt, Flags,
                             nullptr, Annotations);
+}
+
+DIDerivedType *DIBuilder::createHeapAllocSite(DIType *FromTy, DIFile* File,
+                                       unsigned LineNo) {
+  return DIDerivedType::get(VMContext, dwarf::DW_TAG_GOOGLE_heap_alloc, "" , File, LineNo, nullptr, FromTy, 0,
+                            0, 0, std::nullopt, std::nullopt, DINode::FlagZero);
 }
 
 DIDerivedType *DIBuilder::createFriend(DIType *Ty, DIType *FriendTy) {

@@ -543,7 +543,7 @@ public:
 
   /// Emit a shadow decl brought in by a using or using-enum
   void EmitUsingShadowDecl(const UsingShadowDecl &USD);
-
+  
   /// Emit C++ using declaration.
   void EmitUsingDecl(const UsingDecl &UD);
 
@@ -554,7 +554,7 @@ public:
   void EmitImportDecl(const ImportDecl &ID);
 
   /// DebugInfo isn't attached to string literals by default. While certain
-  /// aspects of debuginfo aren't useful for string literals (like a name), it's
+  /// aspects of debuginfo aren't useful for strin literals (like a name), it's
   /// nice to be able to symbolize the line and column information. This is
   /// especially useful for sanitizers, as it allows symbolization of
   /// heap-buffer-overflows on constant strings.

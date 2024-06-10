@@ -121,6 +121,8 @@ namespace llvm {
                                        Instruction *InsertBefore);
 
   public:
+
+  void test(MDNode* MetadataNode);
     /// Construct a builder for a module.
     ///
     /// If \c AllowUnresolved, collect unresolved nodes attached to the module
@@ -218,6 +220,8 @@ namespace llvm {
 
     /// Create C++11 nullptr type.
     DIBasicType *createNullPtrType();
+
+    DIDerivedType *createHeapAllocSite(DIType *FromTy, DIFile* File, unsigned LineNo);
 
     /// Create debugging information entry for a basic
     /// type.

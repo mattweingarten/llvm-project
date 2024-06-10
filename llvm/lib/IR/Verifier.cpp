@@ -1240,6 +1240,7 @@ void Verifier::visitDIDerivedType(const DIDerivedType &N) {
               (N.getTag() == dwarf::DW_TAG_variable && N.isStaticMember()) ||
               N.getTag() == dwarf::DW_TAG_inheritance ||
               N.getTag() == dwarf::DW_TAG_friend ||
+              N.getTag() == dwarf::DW_TAG_GOOGLE_heap_alloc ||
               N.getTag() == dwarf::DW_TAG_set_type,
           "invalid tag", &N);
   if (N.getTag() == dwarf::DW_TAG_ptr_to_member_type) {

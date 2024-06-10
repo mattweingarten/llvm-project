@@ -56,7 +56,7 @@
 #include "llvm/Support/Debug.h"
 
 
-#define DEBUG_TYPE "Codegen"
+#define DEBUG_TYPE "code"
 
 
 #include <optional>
@@ -2487,21 +2487,30 @@ void CGDebugInfo::addHeapAllocSiteMetadata(llvm::CallBase *CI,
       llvm::codegenoptions::DebugLineTablesOnly)
     return;
   SmallVector<llvm::Metadata *> nodes;
+  llvm::DIType* Ty;
   if (AllocatedTy->isVoidType()){
 
     // node = llvm::MDNode::get(CGM.getLLVMContext(), std::nullopt);
+    Ty = nullptr;
     nodes.push_back(llvm::MDNode::get(CGM.getLLVMContext(), std::nullopt));
   }
   else {
     
     // node = getOrCreateType(AllocatedTy, getOrCreateFile(Loc));
-   nodes.push_back(getOrCreateType(AllocatedTy, getOrCreateFile(Loc)));
+    Ty = getOrCreateType(AllocatedTy, getOrCreateFile(Loc));
+   nodes.push_back(Ty);
   }
 
   auto* F = CI->getFunction();
-
-  LLVM_DEBUG(dbgs() << "Got function: \n" );
   
+
+  // LLVM_DEBUG(llvm::dbgs() << "Got function: \n" );
+
+  llvm::NamedMDNode* CU = CI->getModule()->getNamedMetadata("llvm.dbg.cu");
+  // LLVM_DEBUG(llvm::dbgs() << "Named MDNode \n" );
+  
+  //   const llvm::MDNode *Node = *CU->operands().begin();
+  // const auto *CU = cast<llvm::DICompileUnit>(CU);
   // F->getDecl
 
       // llvm::DILocation::get(CGM.getLLVMContext(), getLineNumber(Loc
@@ -2516,17 +2525,36 @@ void CGDebugInfo::addHeapAllocSiteMetadata(llvm::CallBase *CI,
 
     // Create GenericDINode*
 
+    // auto* gen = llvm::GenericDINode::get(CGM.getLLVMContext(), llvm::dwarf::DW_TAG_heap_allocsite, "Header", nullptr);
+    // DBuilder.test(gen);
+    // nodes.push_back(gen);
 
-    nodes.push_back(llvm::GenericDINode::get(CGM.getLLVMContext(), llvm::dwarf::DW_TAG_structure_type, "Header", nullptr));
+
+    
+
     // llvm::GenericDINode* gen =llvm::GenericDINode::get(CGM.getLLVMContext(), llvm::dwarf::DW_TAG_structure_type, "Header", node);
     // Is this generic Node included in the LLVM IR? --> yes
 
     // Make sure this show up in dwarf dump
 
+    llvm::DIDerivedType* n = DBuilder.createQualifiedType(llvm::dwarf::DW_TAG_GOOGLE_heap_alloc,Ty);
+    DBuilder.test(n);
+    nodes.push_back(n);
+
+    llvm::DIDerivedType* n2 = DBuilder.createHeapAllocSite(Ty, getOrCreateFile(Loc), getLineNumber(Loc));
+    DBuilder.test(n2);
+    nodes.push_back(n2);
+
     llvm::dwarf::TypeKind Encoding = llvm::dwarf::DW_ATE_signed;
-    nodes.push_back(DBuilder.createUnspecifiedType("TestType"));
-    nodes.push_back(DBuilder.createBasicType("TestType2", 8, 8));
+    llvm::DINode* TestNode = DBuilder.createUnspecifiedType("TestType");
+    DBuilder.test(TestNode);
+    nodes.push_back(TestNode);
+    llvm::DINode* DINode = DBuilder.createBasicType("TestType2", 8, 8);
+    DBuilder.test(DINode);
+    nodes.push_back(DINode);
     llvm::MDNode *node = llvm::MDNode::get(CGM.getLLVMContext(), nodes);
+
+
 
 
     
@@ -2776,8 +2804,8 @@ CGDebugInfo::CreateTypeDefinition(const RecordType *Ty) {
   // its members.  Finally, we create a descriptor for the complete type (which
   // may refer to the forward decl if the struct is recursive) and replace all
   // uses of the forward declaration with the final definition.
-  llvm::DICompositeType *FwdDecl = getOrCreateLimitedType(Ty);
 
+  llvm::DICompositeType *FwdDecl = getOrCreateLimitedType(Ty);
   const RecordDecl *D = RD->getDefinition();
   if (!D || !D->isCompleteDefinition())
     return {FwdDecl, nullptr};
