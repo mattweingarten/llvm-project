@@ -813,6 +813,10 @@ void DwarfUnit::constructTypeDIE(DIE &Buffer, const DIDerivedType *DTy) {
   if (!DTy->isForwardDecl())
     addSourceLine(Buffer, DTy);
 
+  std::optional<unsigned> Column = cast<DIDerivedType>(DTy)->getColumn();
+  if(!DTy->isForwardDecl() && Column)
+    addUInt(Buffer, dwarf::DW_AT_decl_column, std::nullopt, Column.value());
+
   // If DWARF address space value is other than None, add it.  The IR
   // verifier checks that DWARF address space only exists for pointer
   // or reference types.

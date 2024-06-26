@@ -973,6 +973,13 @@ public:
 /// TODO: Split out members (inheritance, fields, methods, etc.).
 class DIDerivedType : public DIType {
 public:
+
+
+  // Hacky way to get Column.
+  // Optional, only for hacking heap alloc site prototype.
+  std::optional<unsigned> Column = std::nullopt;
+
+
   /// Pointer authentication (__ptrauth) metadata.
   struct PtrAuthData {
     // RawData layout:
@@ -993,6 +1000,7 @@ public:
                 (AuthenticatesNullValues ? (1 << 22) : 0);
     }
 
+    
     unsigned key() { return (RawData >> 0) & 0b1111; }
     bool isAddressDiscriminated() { return (RawData >> 4) & 1; }
     unsigned extraDiscriminator() { return (RawData >> 5) & 0xffff; }
@@ -1003,10 +1011,13 @@ public:
 private:
   friend class LLVMContextImpl;
   friend class MDNode;
+  
+
 
   /// The DWARF address space of the memory pointed to or referenced by a
   /// pointer or reference type respectively.
   std::optional<unsigned> DWARFAddressSpace;
+
 
   DIDerivedType(LLVMContext &C, StorageType Storage, unsigned Tag,
                 unsigned Line, uint64_t SizeInBits, uint32_t AlignInBits,
@@ -1028,7 +1039,7 @@ private:
           std::optional<unsigned> DWARFAddressSpace,
           std::optional<PtrAuthData> PtrAuthData, DIFlags Flags,
           Metadata *ExtraData, DINodeArray Annotations, StorageType Storage,
-          bool ShouldCreate = true) {
+          bool ShouldCreate = true, std::optional<unsigned> Column = std::nullopt) {
     return getImpl(Context, Tag, getCanonicalMDString(Context, Name), File,
                    Line, Scope, BaseType, SizeInBits, AlignInBits, OffsetInBits,
                    DWARFAddressSpace, PtrAuthData, Flags, ExtraData,
@@ -1081,6 +1092,9 @@ public:
   /// Get the base type this is derived from.
   DIType *getBaseType() const { return cast_or_null<DIType>(getRawBaseType()); }
   Metadata *getRawBaseType() const { return getOperand(3); }
+
+
+  std::optional<unsigned> getColumn() const {return Column; }
 
   /// \returns The DWARF address space of the memory pointed to or referenced by
   /// a pointer or reference type respectively.

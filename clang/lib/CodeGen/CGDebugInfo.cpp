@@ -2605,10 +2605,22 @@ void CGDebugInfo::addHeapAllocSiteMetadata(llvm::CallBase *CI,
   llvm::MDNode *node;
   if (AllocatedTy->isVoidType())
     node = llvm::MDNode::get(CGM.getLLVMContext(), std::nullopt);
-  else
-    node = getOrCreateType(AllocatedTy, getOrCreateFile(Loc));
-
-  CI->setMetadata("heapallocsite", node);
+  else {
+    llvm::DIType *Ty = getOrCreateType(AllocatedTy, getOrCreateFile(Loc));
+    auto *F = CI->getFunction();
+    if (F) {
+      auto *SP = F->getSubprogram();
+      if (SP) {
+        node = DBuilder.createHeapAlloc(Ty, getOrCreateFile(Loc),
+                                        getLineNumber(Loc), getColumnNumber(Loc), SP);
+        CI->setMetadata("heapallocsite", node);
+      } else
+        llvm::errs() << "Could not find SP for " << CI->getFunction()->getName()
+                     << "\n";
+    } else
+      llvm::errs() << "Could not find SP for " << CI->getFunction()->getName()
+                   << "\n";
+  }
 }
 
 void CGDebugInfo::completeType(const EnumDecl *ED) {

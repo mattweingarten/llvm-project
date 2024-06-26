@@ -327,6 +327,15 @@ namespace llvm {
                                        uint32_t AlignInBits = 0,
                                        DINode::DIFlags Flags = DINode::FlagZero,
                                        DINodeArray Annotations = nullptr);
+    
+    /// Create debugging information entry for heap allocsite. Points to type
+    /// allocated at the current LineNo.
+    /// \param Ty            Type of heap allocation.
+    /// \param File          File where allocation is made.
+    /// \param LineNo        LineNo of allocation.
+    /// \param SP            Subprogram within which heapallocation occurs.
+    DIDerivedType *createHeapAlloc(DIType *FromTy, DIFile *File, unsigned LineNo,
+                                  unsigned ColNo, DISubprogram *SP);
 
     /// Create debugging information entry for a 'friend'.
     DIDerivedType *createFriend(DIType *Ty, DIType *FriendTy);
