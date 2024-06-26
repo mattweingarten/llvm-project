@@ -70,8 +70,8 @@ void DIBuilder::finalize() {
 
   if (!AllEnumTypes.empty())
     CUNode->replaceEnumTypes(MDTuple::get(
-        VMContext, SmallVector<Metadata *, 16>(AllEnumTypes.begin(),
-                                               AllEnumTypes.end())));
+        VMContext,
+        SmallVector<Metadata *, 16>(AllEnumTypes.begin(), AllEnumTypes.end())));
 
   SmallVector<Metadata *, 16> RetainValues;
   // Declarations and definitions of the same type may be retained. Some
@@ -365,6 +365,15 @@ DIBuilder::createTemplateAlias(DIType *Ty, StringRef Name, DIFile *File,
                             LineNo, getNonCompileUnitScope(Context), Ty, 0,
                             AlignInBits, 0, std::nullopt, std::nullopt, Flags,
                             TParams.get(), Annotations);
+}
+
+DIDerivedType *DIBuilder::createHeapAlloc(DIType *FromTy, DIFile *File,
+                                          unsigned LineNo, DISubprogram *SP) {
+  auto *HeapAllocNode = DIDerivedType::get(
+      VMContext, dwarf::DW_TAG_GOOGLE_heapalloc, "", File, LineNo, SP, FromTy,
+      0, 0, 0, std::nullopt, std::nullopt, DINode::FlagZero);
+  AllRetainTypes.emplace_back(HeapAllocNode);
+  return HeapAllocNode;
 }
 
 DIDerivedType *DIBuilder::createFriend(DIType *Ty, DIType *FriendTy) {
@@ -784,8 +793,7 @@ DIGlobalVariable *DIBuilder::createTempGlobalVariableFwdDecl(
 }
 
 static DILocalVariable *createLocalVariable(
-    LLVMContext &VMContext,
-    SmallVectorImpl<TrackingMDNodeRef> &PreservedNodes,
+    LLVMContext &VMContext, SmallVectorImpl<TrackingMDNodeRef> &PreservedNodes,
     DIScope *Context, StringRef Name, unsigned ArgNo, DIFile *File,
     unsigned LineNo, DIType *Ty, bool AlwaysPreserve, DINode::DIFlags Flags,
     uint32_t AlignInBits, DINodeArray Annotations = nullptr) {
@@ -828,7 +836,7 @@ DILocalVariable *DIBuilder::createParameterVariable(
 }
 
 DILabel *DIBuilder::createLabel(DIScope *Context, StringRef Name, DIFile *File,
-                                 unsigned LineNo, bool AlwaysPreserve) {
+                                unsigned LineNo, bool AlwaysPreserve) {
   auto *Scope = cast<DILocalScope>(Context);
   auto *Node = DILabel::get(VMContext, Scope, Name, File, LineNo);
 
