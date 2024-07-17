@@ -370,8 +370,10 @@ DIBuilder::createTemplateAlias(DIType *Ty, StringRef Name, DIFile *File,
 DIDerivedType *DIBuilder::createHeapAlloc(DIType *FromTy, DIFile *File,
                                           unsigned LineNo, unsigned ColNo, DISubprogram *SP) {
   DIDerivedType *HeapAllocNode = DIDerivedType::get(
-      VMContext, dwarf::DW_TAG_GOOGLE_heapalloc, "", File, LineNo, SP, FromTy,
-      0, 0, 0, std::nullopt, std::nullopt, DINode::FlagZero);
+      VMContext, dwarf::DW_TAG_GOOGLE_heapalloc,
+      SP->getLinkageName().empty() ? SP->getName() : SP->getLinkageName(), File,
+      LineNo - SP->getLine(), SP, FromTy, 0, 0, 0, std::nullopt, std::nullopt,
+      DINode::FlagZero);
   HeapAllocNode -> Column = std::make_optional<unsigned>(ColNo);
   AllRetainTypes.emplace_back(HeapAllocNode);
   return HeapAllocNode;
