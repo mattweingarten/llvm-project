@@ -35,6 +35,9 @@ SANITIZER_WEAK_ATTRIBUTE char __memprof_profile_filename[1];
 // Share ClHistogram compiler flag with runtime.
 SANITIZER_WEAK_ATTRIBUTE bool __memprof_histogram;
 
+// Share log counter pseudo random state compiler flag with runtime.
+unsigned long long __memprof_histogram_random_state;
+
 namespace __memprof {
 
 static void MemprofDie() {
@@ -80,6 +83,8 @@ uptr kHighMemEnd;
 #define MEMPROF_MEMORY_ACCESS_CALLBACK_BODY() __memprof::RecordAccess(addr);
 #define MEMPROF_MEMORY_ACCESS_CALLBACK_BODY_HIST()                             \
   __memprof::RecordAccessHistogram(addr);
+#define MEMPROF_MEMORY_ACCESS_CALLBACK_BODY_HIST_LOG_COUNTER()                 \
+  __memprof::RecordAccessHistogramLogCounter(addr);
 
 #define MEMPROF_MEMORY_ACCESS_CALLBACK(type)                                   \
   extern "C" NOINLINE INTERFACE_ATTRIBUTE void __memprof_##type(uptr addr) {   \
@@ -91,6 +96,15 @@ uptr kHighMemEnd;
       uptr addr) {                                                             \
     MEMPROF_MEMORY_ACCESS_CALLBACK_BODY_HIST()                                 \
   }
+
+#define MEMPROF_MEMORY_ACCESS_CALLBACK_HIST_LOG_COUNTER(type)                  \
+  extern "C" NOINLINE INTERFACE_ATTRIBUTE void                                 \
+      __memprof_hist_log_counter_##type(uptr addr) {                           \
+    MEMPROF_MEMORY_ACCESS_CALLBACK_BODY_HIST_LOG_COUNTER()                     \
+  }
+
+MEMPROF_MEMORY_ACCESS_CALLBACK_HIST_LOG_COUNTER(load)
+MEMPROF_MEMORY_ACCESS_CALLBACK_HIST_LOG_COUNTER(store)
 
 MEMPROF_MEMORY_ACCESS_CALLBACK_HIST(load)
 MEMPROF_MEMORY_ACCESS_CALLBACK_HIST(store)
@@ -278,6 +292,10 @@ void __memprof_record_access_hist(void const volatile *addr) {
   __memprof::RecordAccessHistogram((uptr)addr);
 }
 
+void __memprof_record_access_hist_log_counter(void const volatile *addr) {
+  __memprof::RecordAccessHistogramLogCounter((uptr)addr);
+}
+
 void __memprof_record_access_range(void const volatile *addr, uptr size) {
   for (uptr a = (uptr)addr; a < (uptr)addr + size; a += kWordSize)
     __memprof::RecordAccess(a);
@@ -286,6 +304,12 @@ void __memprof_record_access_range(void const volatile *addr, uptr size) {
 void __memprof_record_access_range_hist(void const volatile *addr, uptr size) {
   for (uptr a = (uptr)addr; a < (uptr)addr + size; a += kWordSize)
     __memprof::RecordAccessHistogram(a);
+}
+
+void __memprof_record_access_range_hist_log_counter(void const volatile *addr,
+                                                    uptr size) {
+  for (uptr a = (uptr)addr; a < (uptr)addr + size; a += kWordSize)
+    __memprof::RecordAccessHistogramLogCounter(a);
 }
 
 extern "C" SANITIZER_INTERFACE_ATTRIBUTE u16

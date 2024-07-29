@@ -42,6 +42,7 @@ void InitializeShadowMemory() {
   uptr shadow_start = FindDynamicShadowStart();
   // Update the shadow memory address (potentially) used by instrumentation.
   __memprof_shadow_memory_dynamic_address = shadow_start;
+  __memprof_histogram_random_state = 0xDEADBEEF;
 
   if (kLowShadowBeg)
     shadow_start -= GetMmapGranularity();

@@ -159,6 +159,11 @@ static cl::opt<bool> ClHistogram("memprof-histogram",
                                  cl::Hidden, cl::init(false));
 
 static cl::opt<bool>
+    ClLogCounter("memprof-histogram-log-counter",
+                 cl::desc("Uses log counters for each histogram bucket."),
+                 cl::Hidden, cl::init(false));
+
+static cl::opt<bool>
     ClPrintMemProfMatchInfo("memprof-print-match-info",
                             cl::desc("Print matching stats for each allocation "
                                      "context in this module's profiles"),
@@ -585,10 +590,11 @@ void MemProfiler::initializeCallbacks(Module &M) {
   for (size_t AccessIsWrite = 0; AccessIsWrite <= 1; AccessIsWrite++) {
     const std::string TypeStr = AccessIsWrite ? "store" : "load";
     const std::string HistPrefix = ClHistogram ? "hist_" : "";
+    const std::string LogCounterPrefix = ClLogCounter ? "log_counter_" : "";
 
     SmallVector<Type *, 2> Args1{1, IntptrTy};
     MemProfMemoryAccessCallback[AccessIsWrite] = M.getOrInsertFunction(
-        ClMemoryAccessCallbackPrefix + HistPrefix + TypeStr,
+        ClMemoryAccessCallbackPrefix + HistPrefix + LogCounterPrefix + TypeStr,
         FunctionType::get(IRB.getVoidTy(), Args1, false));
   }
   MemProfMemmove = M.getOrInsertFunction(

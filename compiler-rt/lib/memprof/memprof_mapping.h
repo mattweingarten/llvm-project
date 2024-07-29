@@ -22,6 +22,9 @@ static const u64 kDefaultShadowScale = 3;
 
 #define SHADOW_GRANULARITY (1ULL << SHADOW_SCALE)
 #define MEMPROF_ALIGNMENT 32
+
+extern unsigned long long __memprof_histogram_random_state;
+
 namespace __memprof {
 
 extern uptr kHighMemEnd; // Initialized in __memprof_init.
@@ -141,6 +144,30 @@ inline void RecordAccessHistogram(uptr a) {
   if (*shadow_address < HISTOGRAM_MAX_COUNTER) {
     (*shadow_address)++;
   }
+}
+
+inline void RecordAccessHistogramLogCounter(uptr a) {
+  unsigned long long random_state = __memprof_histogram_random_state;
+  u8 *shadow_address = (u8 *)HISTOGRAM_MEM_TO_SHADOW(a);
+  CHECK_EQ(SHADOW_ENTRY_SIZE, 8);
+  if (*shadow_address == HISTOGRAM_MAX_COUNTER) {
+    return;
+  }
+
+  // Inverted Morris algorithm:
+  // If our current count is c, generate c random bits.
+  unsigned long long dst = random_state >> (63 - *shadow_address);
+
+  // Increment counter if all c bits are zero with probability 1/(2^c).
+  if (!dst) {
+    (*shadow_address)++;
+  }
+
+  // Pseudorandomly generate next number with XORshift 64.
+  random_state ^= random_state << 13;
+  random_state ^= random_state >> 7;
+  random_state ^= random_state << 17;
+  __memprof_histogram_random_state = random_state;
 }
 
 } // namespace __memprof
