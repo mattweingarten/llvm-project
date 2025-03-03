@@ -367,6 +367,15 @@ DIBuilder::createTemplateAlias(DIType *Ty, StringRef Name, DIFile *File,
                             TParams.get(), Annotations);
 }
 
+DIDerivedType *DIBuilder::createHeapAlloc(DIType *FromTy, DIFile *File,
+                                          unsigned LineNo, DISubprogram *SP) {
+  auto *HeapAllocNode = DIDerivedType::get(
+      VMContext, dwarf::DW_TAG_GOOGLE_heapalloc, "", File, LineNo, SP, FromTy,
+      0, 0, 0, std::nullopt, std::nullopt, DINode::FlagZero);
+  AllRetainTypes.emplace_back(HeapAllocNode);
+  return HeapAllocNode;
+}
+
 DIDerivedType *DIBuilder::createFriend(DIType *Ty, DIType *FriendTy) {
   assert(Ty && "Invalid type!");
   assert(FriendTy && "Invalid friend type!");

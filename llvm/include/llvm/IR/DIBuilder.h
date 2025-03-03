@@ -314,6 +314,9 @@ namespace llvm {
                                        DINode::DIFlags Flags = DINode::FlagZero,
                                        DINodeArray Annotations = nullptr);
 
+    DIDerivedType *createHeapAlloc(DIType *FromTy, DIFile *File,
+                                   unsigned LineNo, DISubprogram *SP);
+
     /// Create debugging information entry for a 'friend'.
     DIDerivedType *createFriend(DIType *Ty, DIType *FriendTy);
 
