@@ -205,15 +205,16 @@ bool mergeStackMap(const CallStackMap &From, CallStackMap &To) {
 Error report(Error E, const StringRef Context) {
   return joinErrors(createStringError(inconvertibleErrorCode(), Context),
                     std::move(E));
-}
-
+                    
+                  }
 bool isRuntimePath(const StringRef Path) {
   const StringRef Filename = llvm::sys::path::filename(Path);
   // This list should be updated in case new files with additional interceptors
   // are added to the memprof runtime.
   return Filename == "memprof_malloc_linux.cpp" ||
          Filename == "memprof_interceptors.cpp" ||
-         Filename == "memprof_new_delete.cpp";
+         Filename == "memprof_new_delete.cpp" ||
+         Filename == "memprof_bazel_allocator.cc";
 }
 
 std::string getBuildIdString(const SegmentEntry &Entry) {
